@@ -35,3 +35,29 @@ Claude Code appends an entry after every finished step.
 - **Decisions this step:** adopted the new PLAN.md (LangGraph + MLflow in Phase 6). Project order: Shortsmith first, Uzbek text-to-SQL fine-tuning second. Target role: Higgsfield AI Engineer (Almaty, on-site).
 
 ---
+
+### 2026-10-19 — Phase 0, Step 0.2: API keys (OpenAI, fal.ai, YouTube)
+- **Concepts learned:**
+  - An API key is a password that tells a service which account to bill. Three rules: least privilege (one key per project, restricted to what it needs), limits (prepaid credits, auto-recharge off, budget alerts), rotation (revoke + recreate when leaked or expired).
+  - Environment variables: values the OS hands to a running program. `.env` is just a file that tools load into them; `uv run --env-file .env` loads it for one run only.
+  - OpenAI: separate `shortsmith` project in the existing org, data sharing on (free daily tokens, but prompts may be used for training, so no private data), $5 project budget, key `shortsmith-dev` (owned by me, 180-day expiry).
+  - fal.ai: serverless GPU inference for image/video models, billed per output. Queue API: submit → wait (polling / subscribe / webhook) → result URL. API-scoped key, no credits until Phase 2.1; `MOCK_MEDIA=1` keeps debugging free.
+  - YouTube Data API: real trend data for the Researcher (Phase 5) so scripts are grounded in evidence, not the model's frozen knowledge. Search costs 100 of 10,000 free daily units. No Shorts-only filter (`videoDuration=short` = under 4 min).
+  - Verifying keys for free: OpenAI `models.list` (0 tokens), YouTube `i18nRegions` (1 unit), fal only by shape (`id:secret`). Never print any part of a key; send Google keys in the `X-Goog-Api-Key` header, not the URL.
+- **My questions → short answers:**
+  - Why do we need the YouTube API? → the Researcher needs what is getting views *now*; an LLM would invent trends. It's the only free, official, stable trend source.
+  - What is fal.ai? → one API key for many image/video models running on fal's GPUs, pay per output (~$0.003 per FLUX schnell image).
+  - Will the $50 Google card hold come back? → yes, it's a reservation, not a charge; the bank releases it, usually within a week (up to 7–10 business days). A som card may lose a little to exchange rates if the bank debits and refunds instead.
+  - Why a separate OpenAI project? → revoke Shortsmith's key without breaking the Yukdosh bot, and see/limit Shortsmith's cost separately. Credits, org rate limits and (I believe) the free token pool are still shared.
+  - Why is `API_KEY_SERVICE_BLOCKED` good? → proof the YouTube key is restricted: if it leaks, the worst case is a used-up free quota, not paid Google APIs billed to my card.
+  - Is deleting a pushed `.env` in the next commit enough? → no, git history keeps it. Rotate every key first (assume it was copied), then clean up (`git rm --cached`, optional history rewrite). Making a repo public later exposes its whole history.
+- **Errors that were lessons:**
+  - `uv run --env-file "D:\All codes\shortsmith\.env"` → "No environment file found at: codesshortsmith.env": uv split the path at the space and treated `\` as an escape character. Fix: run from the repo root with `--env-file .env`.
+  - Key "pasted" but missing: Windows 11 Notepad doesn't ask to save on close. Always Ctrl+S; the check script caught it.
+  - Google Cloud kept the old "Instagram" project selected after creating `shortsmith`: always check the project in the top bar before enabling APIs or creating keys.
+  - Google Cloud now requires 2-step verification; turned it on, saved backup codes offline.
+- **What confused me / to revisit:** all three check questions were new (project separation, least privilege, git history). Revisit before making the repo public in Phase 2.
+- **Interview one-liner:** "Each provider gets its own least-privilege key per project, with budgets and expiry, loaded from a gitignored .env at runtime; I verify keys with free calls that never print secrets, and I know a leaked key means rotate first, clean git history second."
+- **Decisions this step:** set up all three keys now instead of just-in-time. Declined to build on the Google Cloud $300 trial: it's one-time, the 90-day clock starts on activation, and free trials can't use GPUs. Reminder: OpenAI key `shortsmith-dev` expires around 2027-04-17.
+
+---
