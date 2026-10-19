@@ -1,0 +1,46 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Secrets: real keys live only in .env (.env.example is the committed template)
+.env
+.env.*
+!.env.example
+
+# Pipeline output: one folder per run, regenerated on demand
+runs/
+
+# Generated media (big binaries don't belong in git)
+*.mp4
+*.mp3
+*.wav
+
+# Local vector store (rebuilt from data/hooks/)
+chroma/
+
+# LangGraph checkpoints + MLflow tracking data (local state, Phase 6)
+*.sqlite
+*.db
+mlruns/
+mlartifacts/
+
+# Tests and tooling caches
+.pytest_cache/
+.ruff_cache/
+
+# Frontend (Phase 8)
+node_modules/
+.next/
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

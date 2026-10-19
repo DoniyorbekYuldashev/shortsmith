@@ -1,0 +1,19 @@
+[project]
+name = "shortsmith"
+version = "0.1.0"
+description = "AI agents that turn one line of text into a finished 30-second vertical short video."
+readme = "README.md"
+authors = [
+    { name = "Doniyor Yuldashev", email = "doniyojon.yuldashev@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "openai>=3.33.0",
+]
+
+[project.scripts]
+shortsmith = "shortsmith:main"
+
+[build-system]
+requires = ["uv_build>=0.13.1,<0.14.0"]
+build-backend = "uv_build"
