@@ -42,6 +42,14 @@ The full spec is in `docs/PLAN.md`. Read it at the start of every session.
 - Frontend: Next.js + TypeScript in `web/`.
 - Commit after every finished step with a clear message. Remind me to do it.
 
+## Gotchas on this machine
+- The repo path has a space (`D:\All codes\shortsmith`). Run uv from the repo root with relative paths
+  (`uv run --env-file .env ...`). An absolute `--env-file` path gets split at the space.
+- Never open, print or echo `.env`. Check keys only with free calls that print OK/error, never key fragments.
+- Keys: OpenAI project `shortsmith` (key `shortsmith-dev`, expires ~2027-04-17, rotate before then);
+  fal.ai key with API scope (no credits until Phase 2.1); YouTube key restricted to YouTube Data API v3
+  in Google Cloud project `shortsmith`.
+
 ## Current progress
 Update this line at the end of every step:
-**Current phase/step:** Phase 0, Step 0.2 (Step 0.1 done 2026-10-19)
+**Current phase/step:** Phase 0, Step 0.3 (Step 0.2 done 2026-10-19)
