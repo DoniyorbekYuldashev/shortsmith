@@ -61,3 +61,26 @@ Claude Code appends an entry after every finished step.
 - **Decisions this step:** set up all three keys now instead of just-in-time. Declined to build on the Google Cloud $300 trial: it's one-time, the 90-day clock starts on activation, and free trials can't use GPUs. Reminder: OpenAI key `shortsmith-dev` expires around 2027-04-17.
 
 ---
+
+### 2026-10-20 — Phase 1, Step 1.1: First LLM call + usage (code done, live run pending)
+- **Concepts learned:**
+  - A Chat Completions call = a list of messages with roles (`system` = rules, `user` = request, `assistant` = earlier replies) → one reply + a `usage` report.
+  - The model is stateless: a "conversation" is the code resending the whole history every call.
+  - Tokens: `prompt_tokens` (input) vs `completion_tokens` (output, pricier); `cached_tokens` = repeated prompt beginnings (1,024+ tokens) billed cheaper.
+  - Chat Completions (portable "OpenAI-compatible" format: Groq, Ollama, vLLM…) vs Responses API (newer, built-in tools and server-side state, OpenAI-only).
+  - `llm.py`: `ChatResult` Pydantic model (exact model version, tokens, latency; `total_tokens` as a computed property), `@cache` lazy client (import needs no key, one reused connection), `time.perf_counter()` for timing, `content or ""` because content is `None` on refusals/tool calls, no error handling yet on purpose (loud errors; the SDK already retries 429/5xx twice).
+  - Pydantic = data checked at the border: converts what it safely can (`"12"` → 12), rejects the rest with clear errors, dumps to JSON.
+  - `uv add pydantic` changed pyproject (our wish, a range) and uv.lock (shortsmith now depends on it directly); nothing was downloaded since openai already needed it.
+- **My questions → short answers:**
+  - What was Pydantic? → a library that validates data against a shape declared with type hints; it guards every LLM output and every object passed between agents.
+  - pyproject.toml vs uv.lock again? → shopping list (ranges, written by me / `uv add`) vs receipt (exact versions + hashes of every package, written only by uv). `.venv` is the fridge.
+  - Stop Yukdosh and wait for the free-token reset? → pausing it does save free tokens if they work, but the logs showed the resets at 00:00 UTC on 10-19 and 10-20 didn't help while the balance was $0. Adding credits is the only reliable fix.
+- **Check questions (skipped; answers for revision):**
+  - What is sent on the 3rd call? → the whole history: system + user1 + assistant1 + user2 + assistant2 + user3. `prompt_tokens` grows every turn, so long chats get expensive and eventually hit the context window; the app must trim or summarize.
+  - Why the lazy `@cache` client? → importing `llm.py` needs no API key (offline tests and mocks don't crash), and one client is reused (no new connection per call).
+  - Where was the real 429 reason? → in the error body (`code: credit_balance_exhausted`, `type: insufficient_quota`), not the status number or class name. The Step 0.2 check used the free `models.list`, which works at $0: it proved the key is valid, not that it can spend.
+- **Errors that were lessons:** first real call → `RateLimitError 429 credit_balance_exhausted`: the OpenAI org ("Personal") is at $0. Same org as Yukdosh, whose parser has failed since 2026-10-18 15:46 UTC; the Yukdosh server is stopped on purpose until credits are added. Read tracebacks bottom-up: the last line is the error, the lines above are the path through my code, then the library.
+- **What confused me / to revisit:** run the live call and read a real `usage` table once credits exist.
+- **Interview one-liner:** "Every LLM call goes through one thin wrapper that returns a validated Pydantic result with token usage and latency, so cost tracking, retries and model choice live in one place."
+
+---
