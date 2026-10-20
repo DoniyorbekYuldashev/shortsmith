@@ -49,7 +49,11 @@ The full spec is in `docs/PLAN.md`. Read it at the start of every session.
 - Keys: OpenAI project `shortsmith` (key `shortsmith-dev`, expires ~2027-04-17, rotate before then);
   fal.ai key with API scope (no credits until Phase 2.1); YouTube key restricted to YouTube Data API v3
   in Google Cloud project `shortsmith`.
+- The OpenAI org ("Personal") is shared with the owner's production project Yukdosh. Its balance hit $0 on
+  2026-10-18, so every billed call fails with `429 credit_balance_exhausted` until credits are added
+  (free `models.list` still works). Do offline/mocked work until then.
 
 ## Current progress
 Update this line at the end of every step:
-**Current phase/step:** Phase 0, Step 0.3 (Step 0.2 done 2026-10-19)
+**Current phase/step:** Phase 1, Step 1.2
+Open items: Step 1.1 live run (needs OpenAI credits) · Step 0.3 deferred by choice.
