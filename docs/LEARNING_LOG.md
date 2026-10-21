@@ -132,3 +132,21 @@ Claude Code appends an entry after every finished step.
 - **Decision:** build and test on the Gemini free tier; keep the OpenAI SDK, config and credentials, and switch back with payment when it's urgent.
 
 ---
+
+### 2026-10-21 — Phase 1, Step 1.4: Structured outputs (topic → validated Script) ✅ Phase 1 done-check
+- **Concepts learned:**
+  - Structured outputs: send a JSON Schema (`response_format` = `json_schema`, `strict: true`) and the provider constrains the model to JSON of that shape. **Constrained decoding**: while generating, only tokens that keep the JSON valid are allowed.
+  - Two layers: the **schema enforces shape** (fields, types, `Literal` → enum, `extra="forbid"` → `additionalProperties: false`); **validators enforce rules** a schema can't express well (hook ≤ 10 words, 4–8 scenes, idx 1..n, 20–40 s total). LLMs are bad at counting, so code checks.
+  - `@field_validator` checks one field; `@model_validator(mode="after")` checks rules across fields. The prompt asks for 8 words, code allows 10: slack before rejecting.
+  - Record first, validate second: a paid call is in the ledger even if its answer is rejected. (The SDK's `.parse()` does it in one call but validates before we could record.)
+  - `_complete(**request)` is the single place that prices, sends and records; `chat()` and `chat_json()` sit on top. Python 3.12 generics: `def chat_json[T: BaseModel](..., schema: type[T]) -> tuple[T, ChatResult]`.
+  - Prompt lessons from Step 1.1: explicit limits ("AT MOST 8 WORDS") fixed the 30-word hook (now 5 words); same style suffix on every visual_prompt; image prompts in English; "Uzbek (Latin script)" spelled out.
+  - Results (Gemini 3.5 Flash-Lite, free): EN 6 scenes / 28 s, 245 in + 613 out tokens; UZ 5 scenes / 24 s, 249 in + 534 out. ~95% of each call's list cost is output.
+  - Weak content no schema can catch: generic US-café ideas (pumpkin-spice latte, fireplace), "kofeaxonasi" (not a word), `'` instead of `ʻ`, Uzbek narration too short for its scene lengths. Fixes belong to Phase 5 (RAG/research) and Phase 6 (Critic); real durations come from TTS in Phase 2.
+- **Check questions (skipped; answers for revision):**
+  - Shape vs rules? → the strict JSON schema (constrained decoding) guarantees the shape; Pydantic validators in `models.py` check the rules.
+  - ~95% of cost is output: what follows? → ask for less text (tighter output limits, no needless fields), and keep long fixed context in the prompt where caching makes it cheap.
+  - Can a schema catch "kofeaxonasi" or a pumpkin-spice latte? → no, those are content quality. Grounding (Phase 5 RAG + research) and the Critic (Phase 6) handle them.
+- **Interview one-liner:** "The LLM returns JSON under a strict schema, so the shape is guaranteed by constrained decoding, and Pydantic validators enforce the business rules; every call is recorded before validation, because a rejected answer is still a paid one."
+
+---
