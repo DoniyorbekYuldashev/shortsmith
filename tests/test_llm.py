@@ -89,6 +89,19 @@ def test_gemini_model_prefix_is_stripped_before_pricing(monkeypatch, tmp_path):
     assert result.cost_usd == pytest.approx(0.30)
 
 
+def test_temperature_is_sent_only_when_set(monkeypatch, tmp_path):
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    seen: dict = {}
+    monkeypatch.setattr(llm, "_client", lambda: _fake_client(_response("hi"), seen))
+
+    llm.chat(MESSAGES, temperature=0.0, ledger_path=tmp_path / "ledger.jsonl")
+    assert seen["temperature"] == 0.0  # 0.0 is falsy: a sloppy `if temperature:` would drop it
+
+    seen.clear()
+    llm.chat(MESSAGES, ledger_path=tmp_path / "ledger.jsonl")
+    assert "temperature" not in seen  # not set = the provider's default
+
+
 def test_chat_json_sends_the_schema_and_parses_the_answer(monkeypatch, tmp_path):
     monkeypatch.setenv("LLM_PROVIDER", "openai")
     seen: dict = {}
