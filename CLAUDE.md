@@ -55,5 +55,6 @@ The full spec is in `docs/PLAN.md`. Read it at the start of every session.
 
 ## Current progress
 Update this line at the end of every step:
-**Current phase/step:** Phase 1, Step 1.2
-Open items: Step 1.1 live run (needs OpenAI credits) · Step 0.3 deferred by choice.
+**Current phase/step:** Phase 1, Step 1.3
+Open items: Step 1.1 live run + Step 1.2 API comparison (predicted 35 prompt_tokens), both need OpenAI credits ·
+Step 0.3 deferred by choice.

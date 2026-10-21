@@ -84,3 +84,21 @@ Claude Code appends an entry after every finished step.
 - **Interview one-liner:** "Every LLM call goes through one thin wrapper that returns a validated Pydantic result with token usage and latency, so cost tracking, retries and model choice live in one place."
 
 ---
+
+### 2026-10-20 — Phase 1, Step 1.2: Counting tokens with tiktoken (offline; API comparison pending)
+- **Concepts learned:**
+  - A tokenizer cuts text into pieces from a fixed vocabulary; gpt-4o/4.1 use `o200k_base` (~200k pieces). BPE (byte-pair encoding): common chunks = 1 token, rare words split into several. `encode()` gives token IDs (numbers); the count is their length.
+  - The leading space belongs to the token: `" coffee"` is one token.
+  - Same sentence: English 15 tokens, Uzbek Latin 19 (1.3x), Uzbek Cyrillic 23 (1.5x), Russian 18 (1.2x). "qahvaxona" = 5 tokens vs "coffee shop" = 2. Latin Uzbek is the cheaper script.
+  - Chat formatting adds hidden tokens: ~3 per message + the role name + 3 to prime the reply. The Step 1.1 call: 24 text tokens → predicted 35 `prompt_tokens`.
+  - Context window = max tokens per call, input + output together (gpt-4o-mini 128k, gpt-4.1-mini ~1M). Over it, the API refuses; the app, not the model, decides what to drop.
+  - "chars ÷ 4" underestimates mixed-language text: Yukdosh's CLAUDE.md is 5,282 tokens (3.7 chars/token), not ~4,800.
+  - tiktoken downloads its vocabulary on first use and caches it; an offline server would need that cache (Phase 9 gotcha).
+- **Check questions (skipped; answers for revision):**
+  - Why is tokens-per-word misleading? → Uzbek is agglutinative: one word carries what English needs several for ("Toshkentdagi" = "in Tashkent"), so it has fewer, longer words. Cost follows tokens for the same *meaning* (per sentence or script): ~1.3x.
+  - Where do the extra 11 tokens come from? → 3 hidden tokens per message × 2 = 6, the role names "system"/"user" = 2, plus 3 that prime the reply.
+  - Cost of a 5,282-token CLAUDE.md over 100 messages? → ~528k input tokens. Cheaper: keep CLAUDE.md lean and start sessions in the right folder; prompt caching bills a repeated prefix at a discount; `/clear` or new sessions stop history from growing.
+- **What confused me / to revisit:** compare the predicted 35 with the real `prompt_tokens` once credits exist.
+- **Interview one-liner:** "I count tokens locally with tiktoken before sending, so I can budget and trim context; non-English text like Uzbek costs ~1.3–1.5x more tokens for the same meaning, and the chat format adds a few hidden tokens per message."
+
+---
