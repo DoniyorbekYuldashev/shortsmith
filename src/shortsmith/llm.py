@@ -18,7 +18,7 @@ from shortsmith import ledger
 from shortsmith.models import Script
 
 DEMO_SYSTEM_PROMPT = "You are a short-video scriptwriter. Be concise."  # also used by tokens.py's prediction
-DEFAULT_LEDGER = Path("runs/ledger.jsonl")  # relative to where commands run (the repo root)
+DEFAULT_LEDGER = ledger.DEFAULT_PATH
 
 
 class Provider(BaseModel):

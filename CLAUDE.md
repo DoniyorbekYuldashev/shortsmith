@@ -56,11 +56,14 @@ The full spec is in `docs/PLAN.md`. Read it at the start of every session.
 - **Keep the OpenAI path intact** (SDK, `PROVIDERS["openai"]`, key `shortsmith-dev`, prices). The OpenAI org
   ("Personal", shared with the owner's production project Yukdosh) is at $0 since 2026-10-18
   (`429 credit_balance_exhausted`). Switch back later with `LLM_PROVIDER=openai` after adding credits.
+- **Video target (owner's choice, 2026-10-21): 6 images + 1 hero clip per video** (~$0.27–0.62, so $5 ≈ 8–18
+  videos). Hero clips are always approval-gated and never made while `MOCK_MEDIA=1`; check the live fal price
+  before the first one (the old plan figure of $0.10–0.25 per clip was too optimistic).
 - Token counts are model-specific: tiktoken is exact only for OpenAI models. The ledger always records the
   provider's own `usage`.
 
 ## Current progress
 Update this line at the end of every step:
-**Current phase/step:** Phase 2, Step 2.1 (Phase 1 complete 2026-10-21)
+**Current phase/step:** Phase 2, Step 2.2 (Phase 1 complete 2026-10-21; Step 2.1 done, real FLUX run waits for credits)
 Open items: Step 0.3 deferred by choice · OpenAI live comparison (tiktoken predicted 35 prompt_tokens;
 Gemini reported 26) waits for OpenAI credits.
