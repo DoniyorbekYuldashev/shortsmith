@@ -49,12 +49,18 @@ The full spec is in `docs/PLAN.md`. Read it at the start of every session.
 - Keys: OpenAI project `shortsmith` (key `shortsmith-dev`, expires ~2027-04-17, rotate before then);
   fal.ai key with API scope (no credits until Phase 2.1); YouTube key restricted to YouTube Data API v3
   in Google Cloud project `shortsmith`.
-- The OpenAI org ("Personal") is shared with the owner's production project Yukdosh. Its balance hit $0 on
-  2026-10-18, so every billed call fails with `429 credit_balance_exhausted` until credits are added
-  (free `models.list` still works). Do offline/mocked work until then.
+- **LLM provider (owner's decision, 2026-10-21): build and test on Gemini's free tier** (`LLM_PROVIDER=gemini`
+  in `.env`, OpenAI-compatible endpoint, default model `gemini-3.5-flash-lite`; `gemini-3.8-flash` for
+  quality-sensitive steps). Gemini key lives in AI Studio project `gen-lang-client-0252045076`, Free tier:
+  never click "Set up billing". Limits are per-minute/per-day requests (see aistudio.google.com/rate-limit).
+- **Keep the OpenAI path intact** (SDK, `PROVIDERS["openai"]`, key `shortsmith-dev`, prices). The OpenAI org
+  ("Personal", shared with the owner's production project Yukdosh) is at $0 since 2026-10-18
+  (`429 credit_balance_exhausted`). Switch back later with `LLM_PROVIDER=openai` after adding credits.
+- Token counts are model-specific: tiktoken is exact only for OpenAI models. The ledger always records the
+  provider's own `usage`.
 
 ## Current progress
 Update this line at the end of every step:
-**Current phase/step:** Phase 1, Step 1.3
-Open items: Step 1.1 live run + Step 1.2 API comparison (predicted 35 prompt_tokens), both need OpenAI credits ·
-Step 0.3 deferred by choice.
+**Current phase/step:** Phase 1, Step 1.4
+Open items: Step 0.3 deferred by choice · OpenAI live comparison (tiktoken predicted 35 prompt_tokens;
+Gemini reported 26) waits for OpenAI credits.

@@ -102,3 +102,33 @@ Claude Code appends an entry after every finished step.
 - **Interview one-liner:** "I count tokens locally with tiktoken before sending, so I can budget and trim context; non-English text like Uzbek costs ~1.3–1.5x more tokens for the same meaning, and the chat format adds a few hidden tokens per message."
 
 ---
+
+### 2026-10-21 — Phase 1, Step 1.3: Cost ledger (+ switch to the Gemini free tier)
+- **Concepts learned:**
+  - Ledger = append-only record of every paid call (step, model, tokens, list-price cost). Needed for cost per video, for *enforcing* `--budget` (MLflow only watches), and for finding token-hungry agents.
+  - JSON Lines: one object per line, append-only, a crash damages at most the last line; `pd.read_json(path, lines=True)`.
+  - Cost = (prompt − cached) × input + cached × cached_input + completion × output, per 1M tokens.
+  - `cost_usd`: dated model names matched by prefix, **longest match wins**; unknown model **raises** (a silent $0 would break the budget cap). Floats are fine for estimates; `Decimal` for real accounting.
+  - `record`: `mkdir(parents=True, exist_ok=True)`, open with `"a"` and explicit `encoding="utf-8"`, `with` closes the file even on errors. `total_cost`: missing file = $0, a corrupted line raises instead of under-counting.
+  - Wiring: `chat()` checks the price **before** the request ("fail before you pay"), then records every successful call.
+  - Test-driven development: tests written first define "done". pytest tools: `pytest.approx` (float tolerance), `tmp_path` (fresh temp folder), `monkeypatch` (temporary swaps). pytest is a **dev dependency** (`[dependency-groups]`).
+  - Mocking the LLM: a fake client built with `SimpleNamespace` (duck typing) + `monkeypatch.setattr(llm, "_client", ...)` → no network, no key, no money.
+  - Provider switching: OpenAI and Gemini both speak the Chat Completions format; only base_url, key and model change (`PROVIDERS` table, chosen by `LLM_PROVIDER`). Gemini lists models as `models/...`, so the prefix is stripped before pricing.
+  - First real call (Gemini 3.5 Flash-Lite, free tier): 26 in + 35 out tokens, 1.9 s, list price $0.000095, recorded in `runs/ledger.jsonl`. tiktoken predicted 35 prompt tokens: token counts are model-specific.
+  - The model followed the letter, not the spirit: "one sentence" came back ~30 words, too long for a 2-second hook.
+- **My questions → short answers:**
+  - Did the OpenAI key work? → the key is valid, but the org balance is $0, and free daily tokens don't help at $0 (failed after every reset).
+  - How much is the Gemini free tier? → not a token pool: per-project limits on requests/minute, tokens/minute, requests/day (roughly ~15 RPM / ~1,000 RPD for Flash-Lite, indicative; real numbers in AI Studio). Resets at midnight Pacific (~midday Tashkent). Over the limit: 429 `RESOURCE_EXHAUSTED`.
+  - Is it enough for the project? → yes for the LLM side of Phases 1–8 and a daily run; per-minute limits mean agents must retry and pace themselves; fal images (~$5 in Phase 2) and a busy public demo still need money.
+- **Check questions (skipped; answers for revision):**
+  - `"w"` instead of `"a"`? → every call would wipe the file, so only the last call survives and totals under-count; agents in one run would overwrite each other.
+  - Why `cost_usd(model, 0, 0)` before the request? → an unpriced model fails before any paid call instead of after it (when the answer would be lost).
+  - How does `test_llm.py` run offline? → monkeypatch swaps the client for a fake, so tests are free, fast, repeatable and run anywhere (CI).
+  - 35 vs 26 tokens? → different tokenizers and formatting; the ledger records the provider's own count, which is what's billed.
+  - Why set `LLM_PROVIDER=openai` in the test? → tests must not depend on what's in my `.env`.
+  - A real 2-second hook? → say it explicitly: a word limit (e.g. max 8 words), the audience and the local setting.
+- **Lesson:** a test result only counts if the file on disk changed: check the unsaved dot in VS Code or `git status`.
+- **Interview one-liner:** "Every LLM call writes a JSONL ledger line with its list-price cost, unpriced models fail before the call, and because my wrapper speaks the OpenAI-compatible format, I moved from OpenAI to Gemini's free tier by changing three settings."
+- **Decision:** build and test on the Gemini free tier; keep the OpenAI SDK, config and credentials, and switch back with payment when it's urgent.
+
+---
