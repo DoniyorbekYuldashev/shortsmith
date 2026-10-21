@@ -72,11 +72,18 @@ def _client() -> OpenAI:
 
 
 def _complete(
-    messages: list[dict[str, str]], model: str | None, step: str, ledger_path: Path, **request: object
+    messages: list[dict[str, str]],
+    model: str | None,
+    step: str,
+    ledger_path: Path,
+    temperature: float | None = None,
+    **request: object,
 ) -> ChatResult:
     """The one place that sends a request: every call, plain or JSON, is priced and recorded here."""
     model = model or provider().default_model
     ledger.cost_usd(model, 0, 0)  # fail before paying if this model has no price
+    if temperature is not None:  # not `if temperature:`, because 0.0 is a real choice
+        request["temperature"] = temperature  # left out = the provider's default (1.0 for Gemini 3)
 
     start = time.perf_counter()
     response = _client().chat.completions.create(model=model, messages=messages, **request)
@@ -113,9 +120,10 @@ def chat(
     model: str | None = None,
     step: str = "adhoc",
     ledger_path: Path = DEFAULT_LEDGER,
+    temperature: float | None = None,
 ) -> ChatResult:
     """Send one request and record it. The model is stateless: `messages` must hold the whole conversation."""
-    return _complete(messages, model, step, ledger_path)
+    return _complete(messages, model, step, ledger_path, temperature)
 
 
 def chat_json[T: BaseModel](
@@ -124,6 +132,7 @@ def chat_json[T: BaseModel](
     model: str | None = None,
     step: str = "adhoc",
     ledger_path: Path = DEFAULT_LEDGER,
+    temperature: float | None = None,
 ) -> tuple[T, ChatResult]:
     """Ask for JSON that matches `schema`, record the call, then validate it.
 
@@ -135,7 +144,7 @@ def chat_json[T: BaseModel](
         "type": "json_schema",
         "json_schema": {"name": schema.__name__, "schema": schema.model_json_schema(), "strict": True},
     }
-    result = _complete(messages, model, step, ledger_path, response_format=response_format)
+    result = _complete(messages, model, step, ledger_path, temperature, response_format=response_format)
     return schema.model_validate_json(result.text), result
 
 

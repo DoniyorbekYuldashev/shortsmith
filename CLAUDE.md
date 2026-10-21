@@ -61,6 +61,6 @@ The full spec is in `docs/PLAN.md`. Read it at the start of every session.
 
 ## Current progress
 Update this line at the end of every step:
-**Current phase/step:** Phase 1, Step 1.5 (Phase 1 done-check passed in Step 1.4)
+**Current phase/step:** Phase 2, Step 2.1 (Phase 1 complete 2026-10-21)
 Open items: Step 0.3 deferred by choice · OpenAI live comparison (tiktoken predicted 35 prompt_tokens;
 Gemini reported 26) waits for OpenAI credits.
