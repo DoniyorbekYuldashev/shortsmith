@@ -3,6 +3,7 @@
 from types import SimpleNamespace as NS
 
 import pytest
+from pydantic import BaseModel, ValidationError
 
 from shortsmith import llm
 from shortsmith.ledger import LedgerEntry
@@ -10,9 +11,31 @@ from shortsmith.ledger import LedgerEntry
 MESSAGES = [{"role": "user", "content": "hi"}]
 
 
-def _fake_client(response):
-    """Mimics the one method chat() uses: client.chat.completions.create(**kwargs)."""
-    return NS(chat=NS(completions=NS(create=lambda **kwargs: response)))
+def _fake_client(response, seen: dict | None = None):
+    """Mimics the one method chat() uses: client.chat.completions.create(**kwargs).
+
+    If `seen` is given, the request's keyword arguments are copied into it.
+    """
+
+    def create(**kwargs):
+        if seen is not None:
+            seen.update(kwargs)
+        return response
+
+    return NS(chat=NS(completions=NS(create=create)))
+
+
+def _response(content: str, model: str = "gpt-4.1-mini-2025-04-14"):
+    return NS(
+        model=model,
+        choices=[NS(message=NS(content=content))],
+        usage=NS(prompt_tokens=100, completion_tokens=50, prompt_tokens_details=None),
+    )
+
+
+class Point(BaseModel):
+    x: int
+    y: int
 
 
 def test_chat_returns_usage_and_records_it(monkeypatch, tmp_path):
@@ -64,3 +87,27 @@ def test_gemini_model_prefix_is_stripped_before_pricing(monkeypatch, tmp_path):
 
     assert result.model == "gemini-3.5-flash-lite"
     assert result.cost_usd == pytest.approx(0.30)
+
+
+def test_chat_json_sends_the_schema_and_parses_the_answer(monkeypatch, tmp_path):
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    seen: dict = {}
+    monkeypatch.setattr(llm, "_client", lambda: _fake_client(_response('{"x": 1, "y": 2}'), seen))
+
+    point, result = llm.chat_json(MESSAGES, Point, ledger_path=tmp_path / "ledger.jsonl")
+
+    assert point == Point(x=1, y=2)
+    sent = seen["response_format"]["json_schema"]
+    assert (sent["name"], sent["strict"]) == ("Point", True)
+    assert set(sent["schema"]["properties"]) == {"x", "y"}
+
+
+def test_chat_json_records_the_call_even_when_validation_fails(monkeypatch, tmp_path):
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setattr(llm, "_client", lambda: _fake_client(_response('{"x": "oops"}')))
+    path = tmp_path / "ledger.jsonl"
+
+    with pytest.raises(ValidationError):
+        llm.chat_json(MESSAGES, Point, ledger_path=path)
+
+    assert len(path.read_text(encoding="utf-8").splitlines()) == 1  # paid, so recorded
