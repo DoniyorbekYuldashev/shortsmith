@@ -12,6 +12,7 @@ from openai import OpenAI
 from pydantic import BaseModel
 
 DEFAULT_MODEL = "gpt-4.1-mini"
+DEMO_SYSTEM_PROMPT = "You are a short-video scriptwriter. Be concise."  # also used by tokens.py's prediction
 
 
 class ChatResult(BaseModel):
@@ -57,7 +58,7 @@ if __name__ == "__main__":
     prompt = " ".join(sys.argv[1:]) or "Say hello in one short sentence."
     result = chat(
         [
-            {"role": "system", "content": "You are a short-video scriptwriter. Be concise."},
+            {"role": "system", "content": DEMO_SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ]
     )
