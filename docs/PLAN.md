@@ -56,7 +56,7 @@ Researcher   Writer    Director     Producer      Editor     Critic
 - **Evaluator–optimizer loop:** the Critic scores the result, and only failing scenes are regenerated, up to N times. In LangGraph this is a *conditional edge* from Critic back to Producer.
 - **Durability:** LangGraph checkpoints state after each node, so a crashed run resumes instead of paying for everything again.
 - **Observability:** every run is an MLflow trace (each node's prompt, output, tokens, latency), so quality and cost are measured, not guessed.
-- **Cheap by default:** images + ffmpeg motion; real AI video clips only for 1–2 "hero" scenes.
+- **Cheap by default:** images + ffmpeg motion; a real AI video clip for **1 "hero" scene per video** (usually the hook), always after an approval step.
 
 ---
 
@@ -64,11 +64,11 @@ Researcher   Writer    Director     Producer      Editor     Critic
 
 | Part | Tool | Cost |
 |---|---|---|
-| LLM | OpenAI `gpt-4.1-mini` / `gpt-4o-mini` with data-sharing free daily tokens (2.5M/day for small models at Usage Tiers 1–2) | ~$0 |
+| LLM | Gemini free tier (`gemini-3.5-flash-lite`, `gemini-3.8-flash`) through the OpenAI-compatible endpoint while building; OpenAI `gpt-4.1-mini` kept as a switch (`LLM_PROVIDER`) | ~$0 |
 | Embeddings | OpenAI `text-embedding-3-small` | fractions of a cent |
 | Vector DB | Chroma (local) | free |
 | Images | fal.ai FLUX schnell (~$0.003/image) | ~$0.02 per video |
-| Hero clips (optional) | fal.ai image-to-video (Wan / Hailuo, ~$0.02–0.05/sec) | ~$0.10–0.25 per clip |
+| Hero clip (1 per video) | fal.ai image-to-video: Wan 2.5 480p / Veo 3.1 Lite from ~$0.05/s, Kling ~$0.07–0.11/s, premium models $0.30–0.75/s (checked 2026-10-21; verify the live price first) | ~$0.25–0.60 per 5-s clip |
 | Voice | `edge-tts` (free; Uzbek voices `uz-UZ-MadinaNeural`, `uz-UZ-SardorNeural`) | free |
 | Subtitles | edge-tts word-boundary timings → `.srt` | free |
 | Orchestration | LangGraph (standalone, **without** LangChain) + SQLite checkpointer | free |
@@ -80,6 +80,8 @@ Researcher   Writer    Director     Producer      Editor     Critic
 | Frontend | Next.js + TypeScript → Vercel | free |
 | Backend hosting | Azure App Service / small VM ($200 credit) | credits |
 | Notifications | Telegram bot | free |
+
+**Cost per 30-second video:** images only ≈ $0.02 ($5 ≈ 270 videos). **Target setup, 6 images + 1 hero clip ≈ $0.27–0.62 ($5 ≈ 8–18 videos).** Every scene as a clip ≈ $1.50–3.60 ($5 ≈ 1–3 videos).
 
 **Total budget target:** under $15 for the whole project.
 

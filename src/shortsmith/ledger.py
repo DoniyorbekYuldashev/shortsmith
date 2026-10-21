@@ -10,6 +10,13 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+DEFAULT_PATH = Path("runs/ledger.jsonl")  # relative to where commands run (the repo root)
+
+# USD per generated item, for media priced per output instead of per token. FLUX schnell on
+# fal: ~$0.003 per image up to 1 megapixel (plan estimate; verify on fal's model page before
+# the first real run).
+MEDIA_PRICES: dict[str, float] = {"fal-ai/flux/schnell": 0.003}
+
 # USD per 1,000,000 tokens. These are LIST prices, recorded even when data sharing makes a
 # call free, so budgets stay honest. Checked 2026-10-20 on aggregator sites; verify at
 # https://openai.com/api/pricing/ before trusting them.

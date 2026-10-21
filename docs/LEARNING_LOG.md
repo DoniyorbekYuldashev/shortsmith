@@ -171,3 +171,25 @@ Claude Code appends an entry after every finished step.
 - **Interview one-liner:** "I measured instead of guessing: at temperature 0 the API still varied, rules held better in the system message, and I treat prompt injection with layered defenses, not one clever prompt."
 
 ---
+
+### 2026-10-21 — Phase 2, Step 2.1: Scene images (FLUX on fal + free placeholder mode)
+- **Concepts learned:**
+  - Background-job APIs: submit → wait → result URL → download. `fal_client.subscribe()` polls the queue every 0.1 s (`interval=0.1`), so "subscribe" is a convenience wrapper around polling; alternatives are webhooks and status streams.
+  - Mock mode with the same signature: `generate_image()` hides whether FLUX or a placeholder ran, so later code never changes when switching to real images.
+  - Fail-safe default: `MOCK_MEDIA != "0"` means only an explicit "0" spends money; mistakes land on the free side.
+  - Placeholder with Pillow: `zlib.crc32(prompt)` → stable colour per prompt, mid-tone RGB for readable white text, `textwrap`, built-in scalable font (no font file).
+  - Money order in `_flux`: price check first, record right after generation, download last (a paid image stays in the ledger even if the download fails). `MEDIA_PRICES` prices media per item; `ledger.DEFAULT_PATH` is the single ledger location.
+  - FLUX is billed by megapixels: generate 576×1024, let ffmpeg scale up. Runs are saved as `runs/<timestamp>/script.json` + `scenes/scene_XX.png`.
+  - Result: topic → Gemini script → 6 placeholders, $0; the real FLUX path is tested with a fake client, first live run needs fal credits.
+- **My questions → short answers:**
+  - Why images here? → every scene needs a visual; one AI image + ffmpeg camera motion is the cheap default, the placeholder stands in while we build.
+  - Cost per scene / per video? → ~$0.003 per image, so ~$0.02 per 6-scene video (LLM, voice and editing are free).
+  - AI image + camera motion vs AI video clip? → a frozen picture with a moving "camera" (Ken Burns: only the framing changes) vs an AI drawing every frame (~120 for 5 s, so steam and leaves really move).
+  - What is a hero clip? → the one scene per video (usually the hook) that gets a real AI clip; `ai_clip` in `Motion`; approval-gated.
+  - Do I have to pay $5? → not to build. $5 is a prepaid balance, not a per-video price; each image or clip subtracts from it. Try free image sources first.
+  - Real clip prices? → ~$0.25–0.60 per 5-s clip on fal (Wan 480p / Veo Lite from $0.05/s, Kling ~$0.07–0.11/s, premium $0.30–0.75/s); the plan's $0.10–0.25 was too optimistic.
+- **Check questions (answered by Claude):** `!= "0"` so mistakes stay free; ledger before download because fal charges at generation; `interval=0.1` shows subscribe is polling.
+- **Decision:** target = 6 images + 1 hero clip per video (~$0.27–0.62, $5 ≈ 8–18 videos), recorded in PLAN.md and CLAUDE.md. Build for free first; try free image sources before paying fal.
+- **Interview one-liner:** "Media generation sits behind one function with a free mock mode that's on unless explicitly disabled, and every paid job is priced before it runs and recorded the moment it's billed."
+
+---
