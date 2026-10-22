@@ -3,6 +3,7 @@
 from types import SimpleNamespace as NS
 
 import pytest
+from openai.types.chat import ChatCompletionMessage
 from pydantic import BaseModel, ValidationError
 
 from shortsmith import llm
@@ -25,10 +26,15 @@ def _fake_client(response, seen: dict | None = None):
     return NS(chat=NS(completions=NS(create=create)))
 
 
+def _message(content: str | None) -> ChatCompletionMessage:
+    """The SDK's real message type: _complete() calls its model_dump()."""
+    return ChatCompletionMessage(role="assistant", content=content)
+
+
 def _response(content: str, model: str = "gpt-4.1-mini-2025-04-14"):
     return NS(
         model=model,
-        choices=[NS(message=NS(content=content))],
+        choices=[NS(message=_message(content))],
         usage=NS(prompt_tokens=100, completion_tokens=50, prompt_tokens_details=None),
     )
 
@@ -41,7 +47,7 @@ class Point(BaseModel):
 def test_chat_returns_usage_and_records_it(monkeypatch, tmp_path):
     response = NS(
         model="gpt-4.1-mini-2025-04-14",
-        choices=[NS(message=NS(content="Hello!"))],
+        choices=[NS(message=_message("Hello!"))],
         usage=NS(prompt_tokens=1000, completion_tokens=500, prompt_tokens_details=NS(cached_tokens=200)),
     )
     monkeypatch.setenv("LLM_PROVIDER", "openai")  # tests must not depend on your .env
@@ -78,7 +84,7 @@ def test_gemini_model_prefix_is_stripped_before_pricing(monkeypatch, tmp_path):
     monkeypatch.setenv("LLM_PROVIDER", "gemini")
     response = NS(
         model="models/gemini-3.5-flash-lite",
-        choices=[NS(message=NS(content="Salom!"))],
+        choices=[NS(message=_message("Salom!"))],
         usage=NS(prompt_tokens=1_000_000, completion_tokens=0, prompt_tokens_details=None),
     )
     monkeypatch.setattr(llm, "_client", lambda: _fake_client(response))
@@ -124,3 +130,31 @@ def test_chat_json_records_the_call_even_when_validation_fails(monkeypatch, tmp_
         llm.chat_json(MESSAGES, Point, ledger_path=path)
 
     assert len(path.read_text(encoding="utf-8").splitlines()) == 1  # paid, so recorded
+
+
+def test_chat_tools_sends_the_schemas_and_keeps_the_message_as_returned(monkeypatch, tmp_path):
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    message = ChatCompletionMessage.model_validate({
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [{
+            "id": "call_80370", "type": "function",
+            "function": {"name": "generate_image", "arguments": '{"scene":1}'},
+            "extra_content": {"google": {"thought_signature": "EmAK..."}},  # a field the SDK doesn't know
+        }],
+    })
+    response = NS(model="gemini-3.5-flash-lite", choices=[NS(message=message)],
+                  usage=NS(prompt_tokens=287, completion_tokens=28, prompt_tokens_details=None))
+    seen: dict = {}
+    monkeypatch.setattr(llm, "_client", lambda: _fake_client(response, seen))
+    schemas = [{"type": "function", "function": {"name": "generate_image", "parameters": {"type": "object"}}}]
+    path = tmp_path / "ledger.jsonl"
+
+    result = llm.chat_tools([{"role": "user", "content": "go"}], schemas, ledger_path=path)
+
+    assert seen["tools"] is schemas
+    assert result.text == ""
+    assert result.tool_calls == [llm.ToolCall(id="call_80370", name="generate_image", arguments='{"scene":1}')]
+    assert result.message["tool_calls"][0]["extra_content"] == {"google": {"thought_signature": "EmAK..."}}
+    assert "content" not in result.message  # None fields are left out, not sent back as null
+    assert LedgerEntry.model_validate_json(path.read_text(encoding="utf-8")).step == "agent"
