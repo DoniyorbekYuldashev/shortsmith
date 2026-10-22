@@ -10,17 +10,18 @@ the model can't touch anything outside the run, and its arguments stay a few tok
 Every result goes back into the conversation and is paid for again on every later turn, so
 results are short JSON (`{"ok": true, "path": "scenes/scene_02.png", ...}`), never logs.
 
-Phase 4 moves these tools into an MCP server: the registry already holds what MCP needs
-for each one (name, description, input schema, function).
+Two front-ends use this one registry: the agent loop (Phase 3, direct calls) and the MCP
+server (Phase 4, mcp_server.py), which publishes the same tools with a run_id added.
 """
 
 import inspect
 import json
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from shortsmith.llm import Message
 from shortsmith.media import ffmpeg, images, tts
@@ -38,12 +39,14 @@ class ToolContext(BaseModel):
 
     @classmethod
     def for_run(cls, run_dir: Path, fail_first: set[str] | None = None) -> "ToolContext":
-        """Bind a run folder that has a script.json; a complete saved voice is picked up too."""
+        """Bind a run folder that has a script.json. Voice already made is picked up: the whole
+        voiceovers.json `make` writes, or else each scene that text_to_speech saved on its own."""
         script = Script.load(run_dir / "script.json")
         saved = tts.load_voiceovers(run_dir) or []
-        voiceovers = {}
         if len(saved) == len(script.scenes):  # an older script's voice doesn't count
             voiceovers = {scene.idx: v for scene, v in zip(script.scenes, saved)}
+        else:
+            voiceovers = {s.idx: v for s in script.scenes if (v := load_voiceover(run_dir, s.idx))}
         return cls(run_dir=run_dir, script=script, voiceovers=voiceovers, fail_first=fail_first or set())
 
     def scene(self, idx: int) -> Scene:
@@ -60,6 +63,21 @@ def image_file(idx: int) -> Path:
 
 def audio_file(idx: int) -> Path:
     return Path("audio") / f"scene_{idx:02d}.mp3"
+
+
+def timing_file(idx: int) -> Path:
+    """A scene's word timings, saved next to its audio. render_video needs them, and the MCP
+    server loads a fresh ToolContext from disk for every call, so they can't live in memory only."""
+    return Path("audio") / f"scene_{idx:02d}.json"
+
+
+def load_voiceover(run_dir: Path, idx: int) -> tts.Voiceover | None:
+    """One scene's saved voice, or None if its timings or its audio file are missing."""
+    timing = run_dir / timing_file(idx)
+    if not (timing.exists() and (run_dir / audio_file(idx)).exists()):
+        return None
+    saved = tts.Voiceover.model_validate_json(timing.read_text(encoding="utf-8"))
+    return saved.model_copy(update={"audio_path": run_dir / saved.audio_path})
 
 
 class Tool(BaseModel):
@@ -144,6 +162,8 @@ def text_to_speech(ctx: ToolContext, args: SceneArgs) -> VoiceResult:
     path = audio_file(scene.idx)
     voiceover = tts.synthesize(scene.narration, tts.VOICES[ctx.script.language], ctx.run_dir / path)
     ctx.voiceovers[scene.idx] = voiceover
+    relative = voiceover.model_copy(update={"audio_path": path})  # like voiceovers.json: a moved run still works
+    (ctx.run_dir / timing_file(scene.idx)).write_text(relative.model_dump_json(), encoding="utf-8")
     if len(ctx.voiceovers) == len(ctx.script.scenes):  # complete: `make --run` can now re-edit without voicing again
         tts.save_voiceovers([ctx.voiceovers[s.idx] for s in ctx.script.scenes], ctx.run_dir)
     return VoiceResult(
@@ -169,6 +189,22 @@ def render_video(ctx: ToolContext, args: NoArgs) -> VideoResult:
     info = ffmpeg.probe(final)
     return VideoResult(
         path=final.name, duration_s=round(info.duration_s, 1), size_mb=round(info.size_bytes / 1e6, 1), scenes=len(scenes)
+    )
+
+
+class RunStatus(BaseModel):
+    """What a run folder already has: the agent's task message and the MCP status resource say it."""
+
+    images: list[int]  # scene numbers
+    voiceovers: list[int]
+    final: bool  # final.mp4 exists
+
+
+def run_status(ctx: ToolContext) -> RunStatus:
+    return RunStatus(
+        images=[s.idx for s in ctx.script.scenes if (ctx.run_dir / image_file(s.idx)).exists()],
+        voiceovers=sorted(ctx.voiceovers),
+        final=(ctx.run_dir / "final.mp4").exists(),
     )
 
 
@@ -202,11 +238,12 @@ def schemas() -> list[Message]:
     return [schema(t) for t in TOOLS.values()]
 
 
-def call_tool(ctx: ToolContext, name: str, arguments: str) -> str:
-    """Run one tool call the model asked for; return its result as short JSON.
+def run_tool(ctx: ToolContext, name: str, arguments: str) -> BaseModel:
+    """Run one tool call the model asked for and return its result model.
 
     Raises on an unknown name, invalid arguments or a failing tool. The loop catches that
-    and sends the error back to the model as the result, so the model can retry or adapt.
+    and sends the error back to the model as the result, so the model can retry or adapt;
+    the MCP server sends it back as an error result (isError) instead.
     """
     if name not in TOOLS:
         raise ValueError(f"unknown tool {name!r}; the tools are: {', '.join(TOOLS)}")
@@ -215,5 +252,45 @@ def call_tool(ctx: ToolContext, name: str, arguments: str) -> str:
     if name in ctx.fail_first and name not in ctx.failed:
         ctx.failed.add(name)
         raise ConnectionError("the service closed the connection without an answer")  # injected (--fail-first)
-    result = t.fn(ctx, args)
-    return json.dumps({"ok": True, **result.model_dump(mode="json")}, ensure_ascii=False)
+    return t.fn(ctx, args)
+
+
+def ok_json(result: dict[str, Any]) -> str:
+    """A successful result as the short JSON a Chat Completions tool message carries.
+    That message is only a string, so success has to be said inside it ("ok")."""
+    return json.dumps({"ok": True, **result}, ensure_ascii=False)
+
+
+def call_tool(ctx: ToolContext, name: str, arguments: str) -> str:
+    """run_tool() for the agent loop: the result as short JSON. Raises like run_tool()."""
+    return ok_json(run_tool(ctx, name, arguments).model_dump(mode="json"))
+
+
+# --- failures, as the model reads them ------------------------------------------------------
+
+MAX_ERROR_CHARS = 300  # an error is read by the model and paid for on every later turn
+
+
+class ToolFailed(Exception):
+    """A failure already described for the model elsewhere (by an MCP server): describe_error()
+    passes its text on as it is, with no type name put in front."""
+
+
+def describe_error(e: Exception) -> str:
+    """A failed tool call as short text: what went wrong, not a traceback. Shared by the agent
+    loop and the MCP server, so the model reads the same words from both."""
+    if isinstance(e, ToolFailed):
+        text = str(e)
+    elif isinstance(e, ValidationError):  # bad arguments from the model: say which field and why
+        problems = "; ".join(
+            f"{'.'.join(map(str, err['loc'])) or 'arguments'}: {err['msg']}" for err in e.errors(include_url=False)
+        )
+        text = f"invalid arguments: {problems}"
+    elif isinstance(e, subprocess.CalledProcessError):  # str(e) would quote the whole ffmpeg command
+        text = f"{Path(e.cmd[0]).name} failed with exit code {e.returncode}"
+    else:
+        text = f"{type(e).__name__}: {e}"
+    notes = getattr(e, "__notes__", [])  # ffmpeg.run() attaches ffmpeg's own error message here
+    if notes:
+        text += " | " + " ".join(notes)[-MAX_ERROR_CHARS:]
+    return text[:MAX_ERROR_CHARS]

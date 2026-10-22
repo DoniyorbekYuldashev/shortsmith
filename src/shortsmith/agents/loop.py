@@ -9,12 +9,13 @@ message. The loop ends when the model answers without a tool call, or when a bud
 
 Demo, from the repo root (copies a run's script.json into a new run folder first):
     uv run --env-file .env python -m shortsmith.agents.loop --from runs/2026-10-22_112855
+The same, with the tools behind the MCP server (Phase 4) instead of imported:
+    uv run --env-file .env python -m shortsmith.agents.loop --from runs/2026-10-22_112855 --mcp
 """
 
 import argparse
 import json
 import shutil
-import subprocess
 import time
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -22,12 +23,13 @@ from pathlib import Path
 from typing import Literal
 
 import openai
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 from shortsmith import ledger, llm
-from shortsmith.agents import tools
+from shortsmith.agents import mcp_tools, tools
 from shortsmith.llm import ChatResult, Message
 from shortsmith.media import images
+from shortsmith.models import Script
 
 StopReason = Literal["done", "max_steps", "token_budget"]
 CallLLM = Callable[[list[Message], list[Message]], ChatResult]  # (messages, tool schemas) -> one answer
@@ -36,7 +38,7 @@ CallTool = Callable[[str, str], str]  # (name, JSON arguments) -> short JSON res
 MAX_STEPS = 12  # LLM turns. The happy path needs 3-4; a model stuck retrying must not run forever
 MAX_TOKENS = 60_000  # prompt + completion over the whole run. The happy path used 3,440 (build notes, demo 1):
 # room for many retries, but a stuck model can't run up a bill (each turn re-sends the whole history)
-MAX_ERROR_CHARS = 300  # an error result is read by the model and paid for on every later turn
+MAX_ERROR_CHARS = tools.MAX_ERROR_CHARS  # an error result is read by the model and paid for on every later turn
 
 
 class CallLog(BaseModel):
@@ -74,20 +76,9 @@ class AgentResult(BaseModel):
 
 
 def error_result(e: Exception) -> str:
-    """A failed tool call as the short JSON the model reads: what went wrong, not a traceback."""
-    if isinstance(e, ValidationError):  # bad arguments from the model: say which field and why
-        problems = "; ".join(
-            f"{'.'.join(map(str, err['loc'])) or 'arguments'}: {err['msg']}" for err in e.errors(include_url=False)
-        )
-        text = f"invalid arguments: {problems}"
-    elif isinstance(e, subprocess.CalledProcessError):  # str(e) would quote the whole ffmpeg command
-        text = f"{Path(e.cmd[0]).name} failed with exit code {e.returncode}"
-    else:
-        text = f"{type(e).__name__}: {e}"
-    notes = getattr(e, "__notes__", [])  # ffmpeg.run() attaches ffmpeg's own error message here
-    if notes:
-        text += " | " + " ".join(notes)[-MAX_ERROR_CHARS:]
-    return json.dumps({"ok": False, "error": text[:MAX_ERROR_CHARS]}, ensure_ascii=False)
+    """A failed tool call as the short JSON the model reads: what went wrong, not a traceback.
+    (The text itself comes from tools.describe_error, which the MCP server uses too.)"""
+    return json.dumps({"ok": False, "error": tools.describe_error(e)}, ensure_ascii=False)
 
 
 def run_loop(
@@ -197,17 +188,14 @@ your job is to turn it into final.mp4 using your tools.
 - When final.mp4 is rendered (or it clearly can't be), reply with one short sentence and call no tool."""
 
 
-def task_message(ctx: tools.ToolContext) -> str:
+def task_message(script: Script, status: tools.RunStatus) -> str:
     """The user message: the script in compact form (no visual prompts: the tools read those
     from the run folder) and what already exists, so a half-finished run isn't redone."""
-    script = ctx.script
     lines = [f"Script: {script.title!r} ({script.language}, {len(script.scenes)} scenes)"]
     lines += [f"Scene {scene.idx}: {scene.narration}" for scene in script.scenes]
-    have_image = [s.idx for s in script.scenes if (ctx.run_dir / tools.image_file(s.idx)).exists()]
-    have_voice = sorted(ctx.voiceovers)
     lines.append(
-        f"\nAlready made: images for scenes {have_image or 'none'}; voiceovers for scenes {have_voice or 'none'}; "
-        f"final.mp4 {'exists' if (ctx.run_dir / 'final.mp4').exists() else 'not yet'}."
+        f"\nAlready made: images for scenes {status.images or 'none'}; voiceovers for scenes "
+        f"{status.voiceovers or 'none'}; final.mp4 {'exists' if status.final else 'not yet'}."
     )
     return "\n".join(lines)
 
@@ -235,41 +223,22 @@ def journal(log_path: Path) -> Callable[[Turn], None]:
     return write
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="An agent turns a run's script.json into final.mp4 (Phase 3).")
-    where = parser.add_mutually_exclusive_group(required=True)
-    where.add_argument("--run", type=Path, help="work in this run folder (it must have script.json)")
-    where.add_argument("--from", dest="source", type=Path, help="copy this run's script.json into a new run folder")
-    parser.add_argument("--max-steps", type=int, default=MAX_STEPS, help="LLM turns allowed")
-    parser.add_argument("--max-tokens", type=int, default=MAX_TOKENS, help="prompt + completion tokens allowed")
-    parser.add_argument("--fail-first", action="append", choices=sorted(tools.TOOLS), default=[],
-                        help="demo: this tool's first call fails on purpose (repeatable)")
-    parser.add_argument("--model", help="default: the provider's default model")
-    parser.add_argument("--allow-paid-media", action="store_true", help="needed when MOCK_MEDIA=0 (FLUX costs money)")
-    args = parser.parse_args()
-    if not images.mock_media() and not args.allow_paid_media:
-        parser.error("MOCK_MEDIA=0 means paid images: add --allow-paid-media if you really want that")
-
-    if args.source:
-        run_dir = Path("runs") / datetime.now().strftime("%Y-%m-%d_%H%M%S")
-        run_dir.mkdir(parents=True)
-        shutil.copy(args.source / "script.json", run_dir / "script.json")
-    else:
-        run_dir = args.run
-    ctx = tools.ToolContext.for_run(run_dir, fail_first=set(args.fail_first))
+def produce(run_dir: Path, script: Script, status: tools.RunStatus, tool_schemas: list[Message],
+            call_tool: CallTool, args: argparse.Namespace, via: str) -> None:
+    """What both ways of reaching the tools share: the prompt, the loop, the log files, the summary."""
     messages: list[Message] = [
         {"role": "system", "content": PRODUCER_SYSTEM_PROMPT},
-        {"role": "user", "content": task_message(ctx)},
+        {"role": "user", "content": task_message(script, status)},
     ]
-    print(f"{run_dir} | {ctx.script.title!r} | tools: {', '.join(tools.TOOLS)}"
+    print(f"{run_dir} | {script.title!r} | tools: {', '.join(s['function']['name'] for s in tool_schemas)} | {via}"
           + (f" | first call fails on purpose: {', '.join(args.fail_first)}" if args.fail_first else ""))
 
     start, cost_before = time.perf_counter(), ledger.total_cost(ledger.DEFAULT_PATH)
     result = run_loop(
         messages,
-        tools.schemas(),
+        tool_schemas,
         call_llm=llm_caller(args.model),
-        call_tool=lambda name, arguments: tools.call_tool(ctx, name, arguments),
+        call_tool=call_tool,
         max_steps=args.max_steps,
         max_tokens=args.max_tokens,
         log=journal(run_dir / "agent_log.jsonl"),
@@ -283,6 +252,62 @@ def main() -> None:
         f"list price | {time.perf_counter() - start:.0f} s\n"
         f"{final if final.exists() else 'no final.mp4'} | log: {run_dir / 'agent_log.jsonl'}"
     )
+
+
+def produce_over_mcp(args: argparse.Namespace) -> None:
+    """The same producer, but every tool call goes to the MCP server (the one Claude Desktop uses).
+
+    The program, not the model, starts the run (create_run) and reads the script and the
+    run's status (resources); the model only sees the three media tools, with run_id filled in.
+    """
+    start = time.perf_counter()
+    with mcp_tools.McpToolbox.connect(mcp_tools.server_params(fail_first=args.fail_first)) as box:
+        ready_s = time.perf_counter() - start
+        if args.source:
+            script = Script.load(args.source / "script.json")
+            try:
+                created = mcp_tools.tool_message(box.call("create_run", {"script": script.model_dump(mode="json")}))
+            except tools.ToolFailed as e:
+                raise SystemExit(f"create_run rejected {args.source / 'script.json'}: {e}")
+            run_id = json.loads(created)["run_id"]
+        else:
+            run_id = args.run.name  # a folder in the server's runs/
+        script = Script.model_validate_json(box.read_text(f"shortsmith://runs/{run_id}/script"), context={"saved": True})
+        status = tools.RunStatus.model_validate_json(box.read_text(f"shortsmith://runs/{run_id}/status"))
+        via = (f"over MCP: server '{box.client.server_info.name}', protocol {box.client.protocol_version}, "
+               f"started in {ready_s:.1f} s")
+        produce(Path("runs") / run_id, script, status, box.schemas(tools.TOOLS, hidden=["run_id"]),
+                box.tool_caller(run_id=run_id), args, via)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="An agent turns a run's script.json into final.mp4 (Phase 3).")
+    where = parser.add_mutually_exclusive_group(required=True)
+    where.add_argument("--run", type=Path, help="work in this run folder (it must have script.json)")
+    where.add_argument("--from", dest="source", type=Path, help="copy this run's script.json into a new run folder")
+    parser.add_argument("--max-steps", type=int, default=MAX_STEPS, help="LLM turns allowed")
+    parser.add_argument("--max-tokens", type=int, default=MAX_TOKENS, help="prompt + completion tokens allowed")
+    parser.add_argument("--fail-first", action="append", choices=sorted(tools.TOOLS), default=[],
+                        help="demo: this tool's first call fails on purpose (repeatable)")
+    parser.add_argument("--model", help="default: the provider's default model")
+    parser.add_argument("--allow-paid-media", action="store_true", help="needed when MOCK_MEDIA=0 (FLUX costs money)")
+    parser.add_argument("--mcp", action="store_true", help="use the tools through the MCP server (Phase 4)")
+    args = parser.parse_args()
+    if not images.mock_media() and not args.allow_paid_media:
+        parser.error("MOCK_MEDIA=0 means paid images: add --allow-paid-media if you really want that")
+    if args.mcp:
+        produce_over_mcp(args)
+        return
+
+    if args.source:
+        run_dir = Path("runs") / datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        run_dir.mkdir(parents=True)
+        shutil.copy(args.source / "script.json", run_dir / "script.json")
+    else:
+        run_dir = args.run
+    ctx = tools.ToolContext.for_run(run_dir, fail_first=set(args.fail_first))
+    produce(run_dir, ctx.script, tools.run_status(ctx), tools.schemas(),
+            lambda name, arguments: tools.call_tool(ctx, name, arguments), args, via="direct calls")
 
 
 if __name__ == "__main__":
