@@ -288,7 +288,7 @@ def test_the_producer_reaches_final_mp4_with_the_real_tools(tmp_path, monkeypatc
     model = ScriptedLLM(answer(calls=[("render_video", {})]), answer(calls=everything),
                         answer(calls=[("render_video", {})]), answer("final.mp4 is ready."))
     result = run_loop(
-        [{"role": "user", "content": loop.task_message(ctx)}], tools.schemas(), model,
+        [{"role": "user", "content": loop.task_message(ctx.script, tools.run_status(ctx))}], tools.schemas(), model,
         lambda name, arguments: tools.call_tool(ctx, name, arguments),
     )
 
@@ -306,7 +306,8 @@ def test_the_task_message_lists_the_scenes_and_what_already_exists(tmp_path):
     (tmp_path / "script.json").write_text(_script().model_dump_json(), encoding="utf-8")
     (tmp_path / "scenes").mkdir()
     (tmp_path / "scenes" / "scene_03.png").write_bytes(b"png")
-    text = loop.task_message(tools.ToolContext.for_run(tmp_path))
+    ctx = tools.ToolContext.for_run(tmp_path)
+    text = loop.task_message(ctx.script, tools.run_status(ctx))
 
     assert text.startswith("Script: 't' (en, 4 scenes)\nScene 1: word word")
     assert "images for scenes [3]; voiceovers for scenes none; final.mp4 not yet" in text

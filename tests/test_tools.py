@@ -194,3 +194,17 @@ def test_a_run_with_a_complete_saved_voice_does_not_need_voicing_again(ctx, monk
 
     again = tools.ToolContext.for_run(ctx.run_dir)
     assert sorted(again.voiceovers) == [1, 2, 3, 4]
+
+
+def test_a_half_voiced_run_keeps_each_scenes_voice_on_disk(ctx, monkeypatch):
+    """The MCP server loads a fresh context for every call: voice made earlier must come from disk."""
+    monkeypatch.setattr(tools.tts, "synthesize", fake_synthesize)
+    for idx in (1, 2, 3):
+        call(ctx, "text_to_speech", scene=idx)
+    (ctx.run_dir / tools.audio_file(3)).unlink()  # timings without their audio don't count
+
+    again = tools.ToolContext.for_run(ctx.run_dir)
+    assert sorted(again.voiceovers) == [1, 2]
+    assert again.voiceovers[2].audio_path == ctx.run_dir / "audio" / "scene_02.mp3"
+    assert again.voiceovers[2].words == ctx.voiceovers[2].words
+    assert tools.run_status(again) == tools.RunStatus(images=[], voiceovers=[1, 2], final=False)
