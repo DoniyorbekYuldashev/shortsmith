@@ -77,11 +77,15 @@ chat interrupted my flow, so each phase now runs like this:
   before the first one (the old plan figure of $0.10–0.25 per clip was too optimistic).
 - Token counts are model-specific: tiktoken is exact only for OpenAI models. The ledger always records the
   provider's own `usage`.
+- Gemini 3 tool calling: append the assistant message exactly as returned (`ChatResult.message`); it carries
+  `extra_content.google.thought_signature`, and a history without it is rejected with a 400. Free-tier LLM
+  turns can take 13–250 s (server-side queueing), so live agent demos are slow; that's not a bug.
 
 ## Current progress
 Update this line at the end of every step:
-**Current phase/step:** Phase 3 next (tool use from scratch). Phase 2 complete 2026-10-22: lesson
-`docs/lessons/phase-2.md`, exercise `exercises/phase-2/` (not done yet), commits 3619333 (code) + the lesson commit.
+**Current phase/step:** Phase 4 next (MCP). Phase 3 complete 2026-10-22: hand-built agent loop
+(`agents/loop.py`, `agents/tools.py`), lesson `docs/lessons/phase-3.md`, commit 84e8a08 (code) + the lesson commit.
+Exercises waiting (not done yet): `exercises/phase-2/` (Ken Burns), `exercises/phase-3/` (the agent loop).
 Real FLUX images wait for credits or a free image source.
 Open items: Step 0.3 deferred by choice · OpenAI live comparison (tiktoken predicted 35 prompt_tokens;
 Gemini reported 26) waits for OpenAI credits.

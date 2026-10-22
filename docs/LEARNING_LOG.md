@@ -212,3 +212,22 @@ Full lesson: `docs/lessons/phase-2.md` (built from `docs/lessons/phase-2-build-n
 - **Interview one-liner:** "Picture, voice and subtitles share one list of integer frame counts, so they can't drift; the LLM writes to per-language word targets because it can't estimate speech length, and every ffmpeg command is a pure, tested function."
 
 ---
+
+### 2026-10-22 — Phase 3: Tool use from scratch (hand-built agent loop) ✅ Phase 3 complete
+Full lesson: `docs/lessons/phase-3.md` (from `docs/lessons/phase-3-build-notes.md`). Code: commit 84e8a08.
+- **Concepts learned:**
+  - An agent = an LLM + tools + a loop. Pipeline (code picks the order) vs agent (model picks the order); use a workflow when the steps are known.
+  - Function calling: the model never executes anything; it returns tool calls (name + JSON-string arguments); our code validates, runs them and answers with `tool` messages linked by `tool_call_id`. Four roles: system, user, assistant, tool.
+  - Tool schemas generated from Pydantic argument models (same model validates the answer); descriptions are prompts (docstrings via an `@tool` decorator); Pydantic `"title"` keys stripped (33 tokens per turn saved); tools take scene numbers, never paths or text (single source of truth, tiny arguments, least privilege).
+  - The loop: call → append the assistant message unchanged → run every tool call (parallel calls) → append results → stop on done / token budget / max_steps (checked after each turn; the last turn's calls are still answered so the history stays valid).
+  - Errors as feedback: one `try/except` turns any tool failure into `{"ok": false, "error": ...}` (≤ 300 chars) the model can act on.
+  - Dependency injection: `run_loop` receives `call_llm` and `call_tool`, so tests use a scripted fake LLM and Phase 4 can plug in an MCP client.
+  - Context grows every turn (539 → 1,313 → 1,377 prompt tokens); about half of the first prompt is the tool schemas.
+  - Free-tier manners outside the loop: ≥ 4.5 s between requests, 429 → wait 20/40/60 s.
+- **Results ($0):** EN demo: 3 turns (12 parallel calls → render → done), 3,440 tokens, final.mp4 identical to the Phase 2 pipeline's (same frames, byte-identical subtitles). UZ demo with an injected voice failure: the model retried exactly that call and finished in 4 turns (5,148 tokens). `--max-steps 1` and `--max-tokens 2000` stopped live runs cleanly. 117 tests; exercise = 11 tests waiting for me.
+- **Errors that were lessons:** Gemini 3's thought signatures must be sent back unchanged (proven with a real 400 when stripped) → append the assistant message as returned; very slow, uneven LLM turns (13–254 s) traced to free-tier queueing by testing hypotheses (SDK retries ruled out with `OPENAI_LOG=info`, identical requests timed 7× apart); stdout buffering when piped; comments must match measurements; a mutation check proved the tests can fail.
+- **My questions → short answers:** what inputs the writer LLM gets → system rules + "Topic/Language" user message + the Script JSON schema; where research is → Phase 5 (YouTube trends of the last 30 days + RAG hooks), not built yet; what ffmpeg is → a command-line audio/video engine our Python drives with argument lists.
+- **Open items:** run work concurrently (voice calls one by one), no context trimming yet (Phase 6.9), first paid FLUX image via the agent only after asking, free-tier latency for a README demo.
+- **Interview one-liner:** "I wrote the agent loop by hand: the model only requests tool calls, my code validates and runs them, errors go back as results, budgets are enforced in code, and the same loop runs against a scripted fake LLM in tests."
+
+---
