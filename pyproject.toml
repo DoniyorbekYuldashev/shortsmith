@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "edge-tts>=7.3.1",
     "fal-client>=1.0.3",
     "openai>=3.33.0",
     "pillow>=13.0.0",
@@ -21,6 +22,9 @@ shortsmith = "shortsmith:main"
 [build-system]
 requires = ["uv_build>=0.13.1,<0.14.0"]
 build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]  # exercises/ hold unfinished copies: run them with `uv run pytest exercises/phase-2`
 
 [dependency-groups]
 dev = [

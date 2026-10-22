@@ -22,6 +22,9 @@ runs/
 *.mp3
 *.wav
 
+# Your own background music for --music (licensed tracks stay out of the repo)
+data/music/
+
 # Local vector store (rebuilt from data/hooks/)
 chroma/
 
