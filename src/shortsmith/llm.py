@@ -10,9 +10,10 @@ import os
 import time
 from functools import cache
 from pathlib import Path
+from typing import Any
 
 from openai import OpenAI
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from shortsmith import ledger
 from shortsmith.models import NARRATION_WORDS, SCENES_PLANNED, Script
@@ -45,10 +46,25 @@ def provider() -> Provider:
     return PROVIDERS[name]
 
 
+# One chat message in the API's own wire format. A plain dict on purpose: an assistant message
+# with tool calls nests objects, and Gemini adds fields of its own that must go back unchanged.
+Message = dict[str, Any]
+
+
+class ToolCall(BaseModel):
+    """One function call the model asks for. The model only asks: our code decides and runs it."""
+
+    id: str  # the tool message that carries the result must quote this id
+    name: str
+    arguments: str  # JSON text written by the model: checked by the tool's args model, never trusted
+
+
 class ChatResult(BaseModel):
     """One LLM call: what came back and what it consumed."""
 
     text: str
+    tool_calls: list[ToolCall] = []  # empty = a plain answer (for an agent: "I'm done")
+    message: Message = Field(default_factory=dict, repr=False)  # the assistant message exactly as returned
     model: str  # exact version that answered, e.g. "gpt-4.1-mini-2025-04-14"
     prompt_tokens: int  # input: everything we sent, system message included
     completion_tokens: int  # output: what the model wrote (the pricier rate)
@@ -72,7 +88,7 @@ def _client() -> OpenAI:
 
 
 def _complete(
-    messages: list[dict[str, str]],
+    messages: list[Message],
     model: str | None,
     step: str,
     ledger_path: Path,
@@ -92,8 +108,17 @@ def _complete(
     usage = response.usage
     cached = (usage.prompt_tokens_details.cached_tokens if usage.prompt_tokens_details else 0) or 0
     answered_by = response.model.removeprefix("models/")  # Gemini names models "models/gemini-..."
+    message = response.choices[0].message
     result = ChatResult(
-        text=response.choices[0].message.content or "",  # None when the model refuses or calls a tool
+        text=message.content or "",  # None when the model refuses or only calls tools
+        tool_calls=[
+            ToolCall(id=call.id, name=call.function.name, arguments=call.function.arguments)
+            for call in message.tool_calls or []
+            if call.type == "function"
+        ],
+        # model_dump keeps fields the SDK doesn't know: Gemini 3 puts a "thought signature" on
+        # tool calls, and the next request is checked for it. Rebuilding the dict would drop it.
+        message=message.model_dump(exclude_none=True),
         model=answered_by,
         prompt_tokens=usage.prompt_tokens,
         completion_tokens=usage.completion_tokens,
@@ -116,7 +141,7 @@ def _complete(
 
 
 def chat(
-    messages: list[dict[str, str]],
+    messages: list[Message],
     model: str | None = None,
     step: str = "adhoc",
     ledger_path: Path = DEFAULT_LEDGER,
@@ -126,8 +151,25 @@ def chat(
     return _complete(messages, model, step, ledger_path, temperature)
 
 
+def chat_tools(
+    messages: list[Message],
+    tools: list[Message],
+    model: str | None = None,
+    step: str = "agent",
+    ledger_path: Path = DEFAULT_LEDGER,
+    temperature: float | None = None,
+) -> ChatResult:
+    """One agent turn: the model sees the tool schemas and may answer with tool calls instead of text.
+
+    Nothing runs here. `result.tool_calls` holds names and JSON arguments; executing them and
+    sending the results back is the caller's job (agents/loop.py). The schemas are sent with
+    every turn and count as prompt tokens each time.
+    """
+    return _complete(messages, model, step, ledger_path, temperature, tools=tools)
+
+
 def chat_json[T: BaseModel](
-    messages: list[dict[str, str]],
+    messages: list[Message],
     schema: type[T],
     model: str | None = None,
     step: str = "adhoc",

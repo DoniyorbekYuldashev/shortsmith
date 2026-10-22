@@ -127,9 +127,14 @@ def voice_script(script: Script, run_dir: Path) -> list[Voiceover]:
         synthesize(scene.narration, voice, run_dir / "audio" / f"scene_{scene.idx:02d}.mp3")
         for scene in script.scenes
     ]
+    save_voiceovers(voiceovers, run_dir)
+    return voiceovers
+
+
+def save_voiceovers(voiceovers: list[Voiceover], run_dir: Path) -> None:
+    """Write voiceovers.json, one entry per scene in order, with paths relative to the run folder."""
     saved = [v.model_copy(update={"audio_path": v.audio_path.relative_to(run_dir)}) for v in voiceovers]
     (run_dir / VOICEOVERS_FILE).write_bytes(_VOICEOVERS.dump_json(saved, indent=2))
-    return voiceovers
 
 
 def load_voiceovers(run_dir: Path) -> list[Voiceover] | None:
