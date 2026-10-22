@@ -12,21 +12,35 @@ text-to-SQL fine-tuning project. Plan to apply after Phase 4 (end-to-end video +
 
 The full spec is in `docs/PLAN.md`. Read it at the start of every session.
 
-## How you must work with me (learning mode)
+## How you must work with me (learning workflow, owner's choice 2026-10-21)
 
-1. **One step at a time.** Work only on the current phase and step from `docs/PLAN.md`. Never jump ahead or build several steps at once.
-2. **Explain before you code.** At the start of each step, give:
-   - the concept in plain words (max ~10 lines, with a small analogy if useful)
-   - what we'll build and which files change
-   Then wait for me to say "go".
-3. **Small diffs.** Keep each change small enough that I can read all of it. After writing code, walk me through it: what each part does and *why* it's written that way.
-4. **Check my understanding.** After each step, ask me 2–3 short questions about what we just did. Wait for my answers, then tell me honestly what I got right or wrong. Don't move on until I say "next".
-5. **"YOUR TURN" tasks.** For core learning pieces (marked 🧠 in PLAN.md), don't write the full solution. Give me the function signature, the goal and hints, and let me write it. Review my code afterwards. Give the full solution only if I ask for it.
-6. **Answer my questions fully.** I will ask questions at every step. Answer them before continuing, even if they go off topic.
-7. **Errors are lessons.** When something breaks, explain what the error means and how you found the cause before you fix it.
-8. **Say exactly where things go.** For every command, say where to run it (e.g. "terminal, repo root"). For every code snippet, give the exact file path and where in the file it goes.
-9. **Keep a learning log.** At the end of each step, append to `docs/LEARNING_LOG.md`: date, step, concepts learned, my questions, and short answers.
-10. **Be honest.** If my idea or code is wrong or overcomplicated, say so and explain why.
+Learning must never wait on building. Per-step "go" pauses, per-step commits and long test logs in
+chat interrupted my flow, so each phase now runs like this:
+
+1. **Two sessions per phase.**
+   - **Build session** (background, started from the teaching session): builds *every* step of the
+     phase, runs tests and demos, fixes its own errors, verifies quietly, and commits once at the end
+     of the phase. It owns `src/`, `tests/`, `exercises/`, `pyproject.toml`, `uv.lock`. It writes
+     `docs/lessons/phase-N-build-notes.md`: what was built, results (numbers), every error hit and how
+     it was found and fixed, decisions and their reasons.
+   - **Teaching session**: teaches while the build runs. It owns `docs/lessons/phase-N.md`,
+     `docs/LEARNING_LOG.md` and this file. The two sessions never edit the same files.
+2. **One detailed lesson per phase** (`docs/lessons/phase-N.md`), written from the *finished* code
+   and the build notes, with nothing skipped: every concept, every file and function and *why* it's
+   written that way, the errors that happened (errors are lessons), costs, and interview angles.
+   I read it at my own pace and ask questions; answer them fully, even off-topic ones.
+3. **Interactive explainers only for the important, hard parts** (e.g. ffmpeg filter graphs, the agent
+   loop, MCP, embeddings/RAG, LangGraph state): visual, self-paced, with small quizzes.
+4. **🧠 steps become exercises off the critical path.** The build session writes the real code, then
+   puts an exercise copy in `exercises/phase-N/` (same function, body removed, plus its tests). I do
+   them whenever I want (`uv run pytest exercises/phase-N`); they never block progress. Review my
+   exercise code when I ask, and give the full solution only if I ask for it.
+5. **Check questions** go at the end of each lesson: optional, answered whenever I like; then tell me
+   honestly what I got right or wrong.
+6. **Keep a learning log**: one entry per phase in `docs/LEARNING_LOG.md` (concepts, my questions and
+   short answers, errors, decisions, interview one-liner).
+7. **Say exactly where things go.** For every command, say where to run it (e.g. "terminal, repo root").
+8. **Be honest.** If my idea or code is wrong or overcomplicated, say so and explain why.
 
 ## Cost safety (important: I'm paying)
 - Never run paid generation (images, video) in a loop or batch without asking me first, and tell me the estimated cost.
@@ -40,7 +54,9 @@ The full spec is in `docs/PLAN.md`. Read it at the start of every session.
 - Type hints everywhere. Short docstrings that explain *why*, not *what*.
 - `pytest` tests for pure logic (parsing, ffmpeg command building, ledger). Mock the LLM in tests.
 - Frontend: Next.js + TypeScript in `web/`.
-- Commit after every finished step with a clear message. Remind me to do it.
+- Commit at the end of a phase, or when it's genuinely needed (before a risky change, or when I ask).
+  Don't commit or ask about committing after every step: it interrupts my learning flow (owner's request,
+  2026-10-21). Keep each commit message clear about which steps it covers.
 
 ## Gotchas on this machine
 - The repo path has a space (`D:\All codes\shortsmith`). Run uv from the repo root with relative paths
@@ -64,6 +80,8 @@ The full spec is in `docs/PLAN.md`. Read it at the start of every session.
 
 ## Current progress
 Update this line at the end of every step:
-**Current phase/step:** Phase 2, Step 2.2 (Phase 1 complete 2026-10-21; Step 2.1 done, real FLUX run waits for credits)
+**Current phase/step:** Phase 3 next (tool use from scratch). Phase 2 complete 2026-10-22: lesson
+`docs/lessons/phase-2.md`, exercise `exercises/phase-2/` (not done yet), commits 3619333 (code) + the lesson commit.
+Real FLUX images wait for credits or a free image source.
 Open items: Step 0.3 deferred by choice · OpenAI live comparison (tiktoken predicted 35 prompt_tokens;
 Gemini reported 26) waits for OpenAI credits.

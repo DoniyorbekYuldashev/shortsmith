@@ -193,3 +193,22 @@ Claude Code appends an entry after every finished step.
 - **Interview one-liner:** "Media generation sits behind one function with a free mock mode that's on unless explicitly disabled, and every paid job is priced before it runs and recorded the moment it's billed."
 
 ---
+
+### 2026-10-22 — Phase 2, Steps 2.2–2.5: voice, ffmpeg assembly, final.mp4 ✅ Phase 2 complete
+Full lesson: `docs/lessons/phase-2.md` (built from `docs/lessons/phase-2-build-notes.md`).
+- **Workflow change (my choice, 2026-10-21):** a background build session builds a whole phase while the teaching session writes one detailed lesson; hard parts get interactive explainers; 🧠 steps become exercises in `exercises/phase-N/`; commits once per phase. Reason: waiting ~10 minutes per step for tests, commits and logs broke my learning flow.
+- **Concepts learned:**
+  - edge-tts (free, unofficial) with word timings in 100-ns ticks; `async`/`await`, coroutines, the event loop, `asyncio.run` as the bridge; retry with exponential backoff for transient failures.
+  - The audio decides the timing: the LLM's `duration_s` guesses ran ~40% long. Fix: per-language word targets (EN 78–84, UZ 55–60), asked **per scene** because an LLM hits small numbers better; the prompt is built from the same constants as the validator; saved scripts load with a validation context.
+  - ffmpeg anatomy: inputs → filter graph (`,` chains, `;` + `[labels]` in `-filter_complex`) → encoders → output. Escaping differs at every layer, so commands are argument lists and run with `cwd=run_dir` + plain names.
+  - zoompan: one frame in, d frames out; `z`, `x`, `y` expressions per frame with `on`, `zoom`, `iw`, `ih`; window `iw/zoom`; centring `(iw-iw/zoom)/2`; panning needs zoom > 1; upscale 2× first to reduce jitter.
+  - Sync by integers: silent clips + each voice cut to exactly frames × 1600 samples (48 kHz / 30 fps) + subtitles on the same frame counts → no drift (verified with speech-onset detection). Scenes end at the last spoken word + 0.3 s (edge-tts files end in 0.37 s EN / 0.93 s UZ of silence).
+  - Final mix: concat demuxer, libass subtitles (`PlayResX/Y`, `&HAABBGGRR`, numpad alignment), `aformat`/`apad`/`atrim`, `sidechaincompress` ducking, `amix normalize=0`, `loudnorm` to −14 LUFS, `yuv420p`, `+faststart`. Generated music bed (`aevalsrc` chords with sin² windows), no downloads.
+  - Testing commands without running them: pure builders, faked `run()`, zoompan expressions evaluated per frame, only two live renders; `testpaths = ["tests"]` keeps exercises out of the main suite.
+- **Results ($0):** EN `runs/2026-10-22_112855/final.mp4` 30.1 s, UZ `runs/2026-10-22_112757/final.mp4` 28.8 s; 1080×1920 H.264 + AAC, ~2.7 MB, −14.3/−14.7 LUFS; 47–79 s to make; 76 tests pass; exercise = 16 tests waiting for me.
+- **Errors that were lessons:** transient `NoAudioReceived` → retry; subtitle lines crossing scene cuts (caught by a test); music inaudible and video too quiet → measure loudness, don't guess; the build's own tests were wrong once; 22.7-s English video and a rejected 34-word Uzbek script → per-scene word targets; copied runs used the original run's audio → relative paths; one unexplained 101-s LLM call (open).
+- **My questions → short answers:** see the Step 2.1 entry (images vs clips, hero clip, prices, $5); new workflow ideas → chose two sessions + one detailed lesson per phase + interactive explainers for hard parts + exercises off the critical path.
+- **Open items:** measure a Russian run; the 101-s call; voice all scenes concurrently with `asyncio.gather`; first real FLUX image; watch the zoom/pan on a phone for jitter.
+- **Interview one-liner:** "Picture, voice and subtitles share one list of integer frame counts, so they can't drift; the LLM writes to per-language word targets because it can't estimate speech length, and every ffmpeg command is a pure, tested function."
+
+---
