@@ -15,7 +15,7 @@ from openai import OpenAI
 from pydantic import BaseModel, ValidationError
 
 from shortsmith import ledger
-from shortsmith.models import Script
+from shortsmith.models import NARRATION_WORDS, SCENES_PLANNED, Script
 
 DEMO_SYSTEM_PROMPT = "You are a short-video scriptwriter. Be concise."  # also used by tokens.py's prediction
 DEFAULT_LEDGER = ledger.DEFAULT_PATH
@@ -148,21 +148,33 @@ def chat_json[T: BaseModel](
     return schema.model_validate_json(result.text), result
 
 
-WRITER_SYSTEM_PROMPT = """You write scripts for vertical short videos (YouTube Shorts, Reels, TikTok).
+LANGUAGES = {"en": "English", "uz": "Uzbek (Latin script)", "ru": "Russian"}
+
+# Word targets come from models.NARRATION_WORDS, so the prompt and the validator can't disagree.
+# Per scene as well as in total: an LLM counts 10 words far better than 60 (Step 2.4: asked
+# only for a total, Gemini wrote 34 Uzbek words instead of 55-60).
+_WORD_TARGETS = "\n".join(
+    f"  - {LANGUAGES[code]}: {round(low / SCENES_PLANNED)}-{round(high / SCENES_PLANNED)} words per scene, "
+    f"{low}-{high} words in total"
+    for code, (low, high) in NARRATION_WORDS.items()
+)
+
+WRITER_SYSTEM_PROMPT = f"""You write scripts for vertical short videos (YouTube Shorts, Reels, TikTok).
 
 Rules:
-- About 30 seconds in total: 5 to 7 scenes of 3 to 7 seconds each.
+- Exactly {SCENES_PLANNED} scenes, each one or two short sentences.
+- Length: about 30 seconds of speech. Count WORDS, not seconds. Narration length by language:
+{_WORD_TARGETS}
 - hook: the first spoken line, AT MOST 8 WORDS. It must make people stop scrolling.
   Scene 1's narration starts with the hook.
-- narration: spoken words only, short sentences, about 2.5 words per second of the scene.
+- cta: one short call to action. The last scene's narration ends with the cta, so it is spoken.
+- narration: spoken words only (no emojis, hashtags or stage directions).
+- duration_s: your estimate of how long the scene's narration takes to say.
 - visual_prompt: one vertical 9:16 image, concrete and specific to the place and topic.
   End every visual_prompt with the same style words, so all scenes look consistent.
 - motion: zoom_in, zoom_out, pan_left or pan_right. Never ai_clip.
-- cta: one short call to action.
 - Write title, hook, narration and cta in the requested language; visual_prompt always in English.
 - Number scenes with idx 1, 2, 3, ... in order."""
-
-LANGUAGES = {"en": "English", "uz": "Uzbek (Latin script)", "ru": "Russian"}
 
 
 def write_script(topic: str, language: str = "en", model: str | None = None) -> tuple[Script, ChatResult]:
