@@ -83,9 +83,12 @@ chat interrupted my flow, so each phase now runs like this:
 
 ## Current progress
 Update this line at the end of every step:
-**Current phase/step:** Phase 4 next (MCP). Phase 3 complete 2026-10-22: hand-built agent loop
-(`agents/loop.py`, `agents/tools.py`), lesson `docs/lessons/phase-3.md`, commit 84e8a08 (code) + the lesson commit.
-Exercises waiting (not done yet): `exercises/phase-2/` (Ken Burns), `exercises/phase-3/` (the agent loop).
+**Current phase/step:** Phase 5 next (research + RAG). Phase 4 built 2026-10-22: MCP server
+(`mcp_server.py`, mcp 2.3.0 `MCPServer`), agent over MCP (`agents/mcp_tools.py`, `loop --mcp`), lesson
+`docs/lessons/phase-4.md`, commit 57198ec (code) + the lesson commit. Owner still to do: the Claude Desktop test
++ README screenshot (lesson §11; config file is under `%LOCALAPPDATA%\Claude-Data\...`, opened via Settings → Developer).
+Exercises waiting (not done yet): `exercises/phase-2/` (Ken Burns), `exercises/phase-3/` (the agent loop),
+`exercises/phase-4/` (optional: MCP bridge).
 Real FLUX images wait for credits or a free image source.
 Open items: Step 0.3 deferred by choice · OpenAI live comparison (tiktoken predicted 35 prompt_tokens;
 Gemini reported 26) waits for OpenAI credits.

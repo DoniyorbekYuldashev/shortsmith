@@ -231,3 +231,23 @@ Full lesson: `docs/lessons/phase-3.md` (from `docs/lessons/phase-3-build-notes.m
 - **Interview one-liner:** "I wrote the agent loop by hand: the model only requests tool calls, my code validates and runs them, errors go back as results, budgets are enforced in code, and the same loop runs against a scripted fake LLM in tests."
 
 ---
+
+### 2026-10-22 — Phase 4: MCP (one tool server for any AI app) ✅ built; Claude Desktop test is mine
+Full lesson: `docs/lessons/phase-4.md` (from `docs/lessons/phase-4-build-notes.md`). Code: commit 57198ec.
+- **Concepts learned:**
+  - MCP turns M×N custom plugins into M+N: each app writes a client once, each tool a server once ("USB-C for AI tools").
+  - Host (app with the LLM) → client (one per server) → server (separate program). Tools = model-controlled actions; resources = app/user-controlled read-only data with URIs; prompts = user-picked templates.
+  - JSON-RPC 2.0: requests (id), responses, notifications (no id). `initialize` → `notifications/initialized` → `tools/list` → `tools/call`. Protocol 2026-07-28 drops the handshake (`server/discover`, `_meta` on every request).
+  - Tool errors are results with `isError: true` (for the model); protocol errors are JSON-RPC errors (for the program).
+  - stdio transport: the host starts the server as a child; stdout is the channel, so logs go to stderr; closing stdin means "shut down".
+  - Function calling (model → host) and MCP (host → tool server) are two hops; our Phase 3 loop didn't change, only `call_tool` and the schemas now come from an MCP client.
+  - SDK v2: FastMCP is now `MCPServer`; a plain exception's text is hidden from clients, only `ToolError` passes its message.
+  - Server design: tools take `run_id` (a folder name with a pattern, so `../../etc` is rejected), state loaded from disk per call, `create_run(script)` lets the host's model write the script while our Pydantic validator enforces the rules; resources for run lists/status; a prompt that reuses the writer's brief.
+  - Security: a local server runs with my permissions; tool descriptions and results reach the model (tool poisoning); least privilege; the child process gets only the env vars it needs; keys stay in `.env`, never in the host config.
+- **Results ($0):** our agent made `final.mp4` through the MCP server with identical prompt tokens (539 / 1,313 / 1,377) and a byte-identical conversation compared to Phase 3; MCP costs ~2.4 ms per call (vs 0.16 ms direct) and ~2 s to start; an injected failure travelled as `isError` and the model retried exactly that call. 154 tests. Optional exercise in `exercises/phase-4/`.
+- **Errors that were lessons:** the SDK v2 rename (check the installed version before trusting tutorials); pytest from the wrong folder ignored `testpaths`; a buffered `print()` leaked onto stdout at exit (fixed with line buffering, caught by our own test); closing stdin too early dropped a request.
+- **My questions → short answers:** see Phase 3 entry; Phase 2 and 3 explanations given in chat.
+- **Still mine to do:** add the snippet to Claude Desktop, restart, make a video by chatting, take the README screenshot (lesson section 11).
+- **Interview one-liner:** "I wrote the video tools once as an MCP server; my own Gemini agent and Claude Desktop both use it unchanged, and the agent over MCP produced the same video with identical prompt tokens."
+
+---
