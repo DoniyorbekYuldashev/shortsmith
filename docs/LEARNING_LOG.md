@@ -251,3 +251,23 @@ Full lesson: `docs/lessons/phase-4.md` (from `docs/lessons/phase-4-build-notes.m
 - **Interview one-liner:** "I wrote the video tools once as an MCP server; my own Gemini agent and Claude Desktop both use it unchanged, and the agent over MCP produced the same video with identical prompt tokens."
 
 ---
+
+### 2026-10-23 — Phase 5: Research + RAG (grounding in real data) ✅ Phase 5 complete
+Full lesson: `docs/lessons/phase-5.md` (from `docs/lessons/phase-5-build-notes.md`). Code: commit 2d88f2b.
+- **Concepts learned:**
+  - Grounding: give the model real, current data instead of relying on its memory. Two sources here: YouTube trends (live API) and a hook-pattern knowledge base (RAG).
+  - YouTube Data API: `search.list` costs 100 units, `videos.list` 1 unit; 10,000 units/day reset in Pacific time; our own cap of 2,000 checked before every request; 24 h cache; key in a header, never in a URL.
+  - RAG = index (chunk → embed → store) once, then retrieve (embed the query → top-k nearest) on every call, and put only those chunks in the prompt.
+  - Embeddings put meaning on a map; cosine similarity compares direction, not length. gemini-embedding-2 at 768 numbers (en↔uz 0.90); task formats go into the text because the compatible endpoint rejects `task_type`.
+  - Chunking: the smallest piece that is useful on its own (one `##` pattern). Too big = blurry vectors and wasted tokens; too small = good ranking but useless context.
+  - Similarity is a ranking signal, not a probability (scores bunch at 0.63–0.67), so top-k beats a threshold.
+  - Idempotent sync with content hashes: a second run embeds nothing. Chroma stores; we embed (every call through the ledger).
+  - Researcher = code + one structured LLM call (not an agent loop): predictable steps belong in code.
+  - RAG vs fine-tuning vs long context: RAG for changing knowledge and short prompts; fine-tuning for style/format; long context is legitimate at small sizes (all 69 patterns = 8,535 tokens).
+  - Evaluation: blind LLM judge (a stronger, different model) in both orders, plus my own reading; hit@1 and MRR for retrieval.
+- **Results ($0, 59 requests, $0.0438 list price):** 69 patterns (en/uz/ru) + 2 fictional brands = 79 chunks, 9,370 tokens to index; research won 6 of 8 blind verdicts (189 vs 167 of 320), +15 of the +22 points from the hook; it lost the coffee-shop topic when visual notes leaked into the narration. Retrieval eval: one-pattern chunks hit@1 0.88 / MRR 0.91; whole files 0.62 with 9× the tokens; 3072 dimensions no better than 768. 235 tests; exercise = 14 tests waiting for me.
+- **Errors that were lessons:** Gemini embeddings send `index: null` and record no usage → write the ledger line first, estimate tokens; free-tier embeddings count each text as one request (429 at 100/min); keyword search knows words, not meanings ("Registan" = desert in Hindi); retrieved/searched text is untrusted (the Researcher copied another business's address → prompt v2); always-on brand rules shouldn't depend on similarity; least privilege: only offered tools may run (`offered_only()`).
+- **Open items:** word counts miss targets; hooks copied word for word; split angles into say vs show; always include brand "words to avoid"; code-side trend noise filter; better Uzbek queries; MCP `write_script` has no research option.
+- **Interview one-liner:** "I built RAG from scratch over a multilingual hook library, measured chunking with hit@1 and MRR instead of guessing, and proved with a blind, order-swapped LLM judge that research improved 3 of 4 scripts, mostly in the hook."
+
+---
