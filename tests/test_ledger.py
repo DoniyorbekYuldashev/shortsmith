@@ -55,3 +55,22 @@ def test_total_cost_sums_the_file(tmp_path):
 
 def test_total_cost_of_missing_file_is_zero(tmp_path):
     assert total_cost(tmp_path / "nothing-yet.jsonl") == 0.0
+
+
+def test_lines_written_inside_a_graph_run_carry_its_id(tmp_path):
+    path = tmp_path / "ledger.jsonl"
+    record(LedgerEntry(step="writer", model="m", prompt_tokens=1, completion_tokens=1, cost_usd=0.1), path)
+    token = ledger.CURRENT_RUN.set("2026-10-23_221500")
+    try:
+        record(LedgerEntry(step="critic", model="m", prompt_tokens=1, completion_tokens=1, cost_usd=0.2), path)
+    finally:
+        ledger.CURRENT_RUN.reset(token)
+    assert [e.step for e in ledger.entries(path, "2026-10-23_221500")] == ["critic"]
+    assert [e.run_id for e in ledger.entries(path)] == [None, "2026-10-23_221500"]
+
+
+def test_lines_from_before_phase_6_still_parse(tmp_path):
+    path = tmp_path / "ledger.jsonl"
+    path.write_text('{"ts": "2026-10-20T10:00:00Z", "step": "writer", "model": "m", "prompt_tokens": 1, '
+                    '"cached_tokens": 0, "completion_tokens": 1, "cost_usd": 0.1}\n', encoding="utf-8")
+    assert ledger.entries(path)[0].run_id is None and ledger.entries(tmp_path / "missing.jsonl") == []

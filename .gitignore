@@ -32,8 +32,11 @@ chroma/
 .cache/
 
 # LangGraph checkpoints + MLflow tracking data (local state, Phase 6)
+checkpoints/
 *.sqlite
+*.sqlite-*
 *.db
+*.db-*
 mlruns/
 mlartifacts/
 

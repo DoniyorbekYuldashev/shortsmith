@@ -30,11 +30,11 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from shortsmith.llm import Message
-from shortsmith.media import ffmpeg, images, tts
+from shortsmith.media import animate, ffmpeg, images, tts
 from shortsmith.models import Scene, Script
 from shortsmith.research import rag, youtube
 
-Group = Literal["media", "research"]
+Group = Literal["media", "research", "clip"]  # "clip": the paid hero clip, never offered to the agent producer
 
 
 class ToolContext(BaseModel):
@@ -202,6 +202,42 @@ def render_video(ctx: ToolContext, args: NoArgs) -> VideoResult:
     return VideoResult(
         path=final.name, duration_s=round(info.duration_s, 1), size_mb=round(info.size_bytes / 1e6, 1), scenes=len(scenes)
     )
+
+
+# --- the hero clip (Phase 6): a paid tool, in its own group ----------------------------------
+
+
+class ClipArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scene: int = Field(ge=1, description="Scene number (idx) from the script, starting at 1. Usually 1, the hook.")
+    motion: str = Field(min_length=3, max_length=300, description=(
+        "What moves in the clip, one short English sentence, e.g. 'steam curls up as a hand lifts the cup'."))
+
+
+class ClipResult(BaseModel):
+    scene: int
+    path: str
+    seconds: int
+    reused: bool  # True = the clip already existed; a paid clip is never made twice
+    mock: bool  # True = a free placeholder clip (MOCK_MEDIA)
+
+
+@tool(ClipArgs, group="clip")
+def animate_image(ctx: ToolContext, args: ClipArgs) -> ClipResult:
+    """Turn one scene's image into a 5-second AI video clip: the video's one "hero" scene, usually the hook.
+    Saves clips_ai/scene_NN.mp4, and render_video then uses it for that scene. With real media this COSTS
+    about $0.30 per clip: ask the user first, and make at most one per video. Needs the scene's image
+    (generate_image first). A clip that already exists is reused, not made again."""
+    scene = ctx.scene(args.scene)
+    image, path = ctx.run_dir / image_file(scene.idx), ffmpeg.ai_clip_file(scene.idx)
+    if not image.exists():
+        raise FileNotFoundError(f"no image for scene {scene.idx} yet: call generate_image first")
+    reused = (ctx.run_dir / path).exists()
+    if not reused:
+        animate.animate_image(image, args.motion, ctx.run_dir / path, step="agent")
+    return ClipResult(scene=scene.idx, path=path.as_posix(), seconds=animate.CLIP_SECONDS, reused=reused,
+                      mock=images.mock_media())
 
 
 # --- research tools (Phase 5): no run folder -------------------------------------------------

@@ -301,3 +301,99 @@ def test_write_script_puts_the_research_notes_into_the_user_message(monkeypatch,
     assert user["content"].startswith("Topic: cafe\nLanguage: English")
     assert '- Hidden gem: "Tashkent\'s best cafe has no sign" (locals love secrets)' in user["content"]
     assert "End every visual_prompt with these style words: warm amber light, 35mm film look" in user["content"]
+
+
+# --- Phase 6: chat_schema and paced ------------------------------------------------------------------
+
+
+def test_chat_schema_sends_the_schema_and_leaves_validation_to_the_caller(monkeypatch, tmp_path):
+    seen = {}
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setattr(llm, "_client", lambda: _fake_client(_response('{"x": "not a number"}'), seen))
+    result = llm.chat_schema(MESSAGES, Point, step="writer", ledger_path=tmp_path / "ledger.jsonl")
+    assert result.text == '{"x": "not a number"}'  # chat_json would raise here; the caller decides
+    assert seen["response_format"]["json_schema"]["name"] == "Point"
+    assert (tmp_path / "ledger.jsonl").exists()
+
+
+def test_paced_spaces_requests_and_waits_out_a_429(monkeypatch):
+    request = httpx.Request("POST", "https://example.test/chat/completions")
+    limited = openai.RateLimitError("429 RESOURCE_EXHAUSTED. Please retry in 12.75s.",
+                                    response=httpx.Response(429, request=request), body=None)
+    answers = iter([limited, "ok"])
+    waits: list[float] = []
+
+    def call():
+        answer = next(answers)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(llm, "_last_request", float("-inf"))
+    assert llm.paced(call, sleep=waits.append) == "ok"
+    assert waits[0] == 13.75  # the delay the error named, + 1 s
+    assert 0 < waits[1] <= llm.MIN_INTERVAL_S  # and the next request still keeps the spacing
+
+
+def test_paced_gives_up_after_the_last_retry(monkeypatch):
+    request = httpx.Request("POST", "https://example.test/chat/completions")
+
+    def call():
+        raise openai.RateLimitError("429", response=httpx.Response(429, request=request), body=None)
+
+    with pytest.raises(openai.RateLimitError):
+        llm.paced(call, sleep=lambda s: None)
+
+
+def test_paced_waits_out_a_503_high_demand(monkeypatch):
+    request = httpx.Request("POST", "https://example.test/chat/completions")
+    overloaded = openai.InternalServerError("This model is currently experiencing high demand.",
+                                            response=httpx.Response(503, request=request), body=None)
+    answers = iter([overloaded, overloaded, "ok"])
+    waits: list[float] = []
+
+    def call():
+        answer = next(answers)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(llm, "MIN_INTERVAL_S", 0)
+    assert llm.paced(call, sleep=waits.append) == "ok"
+    assert waits == [30, 60]
+
+
+def test_thinking_tokens_hidden_in_total_tokens_are_priced_as_output(monkeypatch, tmp_path):
+    """Gemini's compatible endpoint: completion_tokens leaves the model's thinking out; total_tokens has it."""
+    response = NS(model="gemini-3.6-flash", choices=[NS(message=_message("{}"))],
+                  usage=NS(prompt_tokens=5444, completion_tokens=123, total_tokens=6184, prompt_tokens_details=None))
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    monkeypatch.setattr(llm, "_client", lambda: _fake_client(response))
+    result = llm.chat(MESSAGES, step="critic", ledger_path=tmp_path / "ledger.jsonl")
+
+    assert result.reasoning_tokens == 617 and result.total_tokens == 6184
+    assert result.cost_usd == pytest.approx((5444 * 0.75 + (123 + 617) * 3.75) / 1e6)  # thinking at the output rate
+    entry = LedgerEntry.model_validate_json((tmp_path / "ledger.jsonl").read_text(encoding="utf-8"))
+    assert (entry.completion_tokens, entry.reasoning_tokens) == (123, 617)
+
+
+def test_openai_counts_reasoning_inside_completion_tokens_so_nothing_is_added(monkeypatch, tmp_path):
+    response = NS(model="gpt-4.1-mini", choices=[NS(message=_message("hi"))],
+                  usage=NS(prompt_tokens=100, completion_tokens=50, total_tokens=150, prompt_tokens_details=None))
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setattr(llm, "_client", lambda: _fake_client(response))
+    assert llm.chat(MESSAGES, ledger_path=tmp_path / "ledger.jsonl").reasoning_tokens == 0
+
+
+def test_a_daily_quota_429_is_not_retried():
+    request = httpx.Request("POST", "https://example.test/chat/completions")
+    calls: list[int] = []
+
+    def call():
+        calls.append(1)
+        raise openai.RateLimitError("429 ... 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier' ... "
+                                    "Please retry in 11h41m32.4s.", response=httpx.Response(429, request=request), body=None)
+
+    with pytest.raises(llm.DailyQuotaError, match="daily request quota"):
+        llm.paced(call, sleep=lambda s: None)
+    assert len(calls) == 1
