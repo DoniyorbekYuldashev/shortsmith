@@ -64,7 +64,7 @@ Researcher   Writer    Director     Producer      Editor     Critic
 
 | Part | Tool | Cost |
 |---|---|---|
-| LLM | Gemini free tier (`gemini-3.5-flash-lite`, `gemini-3.8-flash`) through the OpenAI-compatible endpoint while building; OpenAI `gpt-4.1-mini` kept as a switch (`LLM_PROVIDER`) | ~$0 |
+| LLM | Gemini free tier (`gemini-3.5-flash-lite`, `gemini-3.8-flash`) through the OpenAI-compatible endpoint while building; OpenAI `gpt-4.1-mini` kept as a switch (`LLM_PROVIDER`). The Critic judges with `gemini-3.8-flash` (fallback `gemini-3.6-flash` via `SHORTSMITH_CRITIC_MODEL`); each free Flash model allows only 20 requests a day | ~$0 |
 | Embeddings | Gemini `gemini-embedding-2` at 768 dimensions (free tier; OpenAI's model stays behind `LLM_PROVIDER=openai`) | $0 on the free tier |
 | Vector DB | Chroma (local) | free |
 | Images | fal.ai FLUX schnell (~$0.003/image) | ~$0.02 per video |
@@ -72,7 +72,7 @@ Researcher   Writer    Director     Producer      Editor     Critic
 | Voice | `edge-tts` (free; Uzbek voices `uz-UZ-MadinaNeural`, `uz-UZ-SardorNeural`) | free |
 | Subtitles | edge-tts word-boundary timings → `.srt` | free |
 | Orchestration | LangGraph (standalone, **without** LangChain) + SQLite checkpointer | free |
-| LLMOps | MLflow 3 tracing (`mlflow.openai.autolog()`) + local MLflow UI | free |
+| LLMOps | MLflow 3 tracing (`mlflow.openai.autolog()` + a span per node), local store `sqlite:///mlflow.db` + local MLflow UI | free |
 | Editing | ffmpeg (subprocess) | free |
 | Trends | YouTube Data API v3 (free quota: 10k units/day; one search = 100 units) | free |
 | Agent protocol | `mcp` Python SDK (FastMCP) | free |
@@ -116,10 +116,12 @@ shortsmith/
 │   │   ├── youtube.py
 │   │   └── rag.py          # ingest + retrieve (Chroma)
 │   ├── agents/
-│   │   ├── loop.py         # hand-built tool-calling loop
+│   │   ├── loop.py  tools.py  mcp_tools.py   # hand-built tool-calling loop, tool registry, MCP client
 │   │   ├── researcher.py  writer.py  director.py
-│   │   ├── producer.py    editor.py  critic.py
-│   │   └── graph.py        # LangGraph: nodes, edges, critic loop, checkpointer
+│   │   ├── producer.py    critic.py  reviser.py   # (the editor is a small node inside graph.py)
+│   │   ├── state.py        # RunState + reducers
+│   │   ├── graph.py        # LangGraph: nodes, edges, critic loop, checkpointer, interrupt
+│   │   └── toy_graph.py  prompt_eval.py  context_eval.py
 │   ├── tracing.py          # MLflow setup + custom spans/metrics
 │   ├── mcp_server.py
 │   ├── cli.py              # Typer
@@ -150,10 +152,18 @@ class Script(BaseModel):
     cta: str
     language: Literal["en", "uz", "ru"]
 
+class SceneIssue(BaseModel):     # a strict JSON schema can't express dict[int, str], so a list
+    scene: int
+    problem: Literal["narration", "visual", "both"]
+    reason: str
+    fix: str                  # one concrete change, so a regenerated scene really differs
+
 class CriticReport(BaseModel):
-    overall_score: float      # 0–10
-    weak_scenes: list[int]
-    reasons: dict[int, str]
+    score: float              # 0–10
+    weak_scenes: list[SceneIssue]   # at most 3, worst first
+    round: int
+    frames: list[int]         # the scenes whose frames the critic saw
+    checks: ScriptChecks      # word counts, copied hook: measured by code, not the model
 
 class RunState(BaseModel):
     run_id: str
@@ -167,6 +177,9 @@ class RunState(BaseModel):
     tokens_used: int = 0
     cost_usd: float = 0.0
 ```
+*As built (Phase 6, `agents/state.py`):* `RunState` also holds `plan`, `hero`, `revisions` and `made`;
+`critic_rounds`, `revisions` and `made` are appended (`operator.add`), and `tokens_used`/`cost_usd` are derived
+from a per-node `usage` map summed by a custom reducer.
 
 ---
 
