@@ -23,6 +23,7 @@ from test_tools import _script, fake_synthesize
 
 MEDIA_TOOLS = {"generate_image", "text_to_speech", "render_video"}
 RESEARCH_TOOLS = {"search_trends", "retrieve_hooks"}  # Phase 5: no run_id
+CLIP_TOOLS = {"animate_image"}  # Phase 6: the paid hero clip, with a run_id
 
 
 def en_script(**changes) -> dict:
@@ -75,8 +76,8 @@ def fake_media(monkeypatch) -> None:
 
 def test_the_server_offers_the_registry_tools_plus_two_that_start_a_run(box):
     listed = {t.name: t for t in box.list_tools()}
-    assert set(listed) == MEDIA_TOOLS | RESEARCH_TOOLS | {"create_run", "write_script"}
-    for name in MEDIA_TOOLS:  # descriptions come from the Phase 3 docstrings, not a copy
+    assert set(listed) == MEDIA_TOOLS | RESEARCH_TOOLS | CLIP_TOOLS | {"create_run", "write_script"}
+    for name in MEDIA_TOOLS | CLIP_TOOLS:  # descriptions come from the Phase 3 docstrings, not a copy
         assert listed[name].description == tools.TOOLS[name].description
 
 
@@ -318,7 +319,7 @@ def test_the_prompt_is_a_template_with_the_writers_brief(box):
 def test_the_server_works_over_stdio_as_a_subprocess(tmp_path):
     a_run(tmp_path / "runs")
     with mcp_tools.McpToolbox.connect(mcp_tools.server_params(root=tmp_path)) as box:
-        assert {t.name for t in box.list_tools()} == MEDIA_TOOLS | RESEARCH_TOOLS | {"create_run", "write_script"}
+        assert {t.name for t in box.list_tools()} == MEDIA_TOOLS | RESEARCH_TOOLS | CLIP_TOOLS | {"create_run", "write_script"}
         result = box.call("generate_image", {"run_id": "r1", "scene": 1})
     assert result.structured_content["path"] == "scenes/scene_01.png"
     assert (tmp_path / "runs" / "r1" / "scenes" / "scene_01.png").exists()
@@ -369,7 +370,7 @@ def test_stdout_carries_only_json_rpc_even_when_a_tool_prints(tmp_path):
         server.wait(timeout=30)
         reader.join(timeout=10)  # every line the server ever wrote is in `lines` now
 
-    assert listed["id"] == 2 and len(listed["result"]["tools"]) == 7
+    assert listed["id"] == 2 and len(listed["result"]["tools"]) == 8
     assert called["id"] == 3 and called["result"]["structuredContent"]["path"] == "scenes/scene_01.png"
     leftover = []
     while not lines.empty():

@@ -11,12 +11,13 @@ import logging
 import os
 import re
 import time
+from collections.abc import Callable
 from functools import cache
 from pathlib import Path
 from typing import Any
 
 import tiktoken
-from openai import OpenAI, RateLimitError
+from openai import InternalServerError, OpenAI, RateLimitError
 from pydantic import BaseModel, Field, ValidationError
 
 from shortsmith import ledger
@@ -76,12 +77,15 @@ class ChatResult(BaseModel):
     prompt_tokens: int  # input: everything we sent, system message included
     completion_tokens: int  # output: what the model wrote (the pricier rate)
     cached_tokens: int  # part of the input served from OpenAI's prompt cache (cheaper)
+    # Thinking the model did before answering, billed as output. OpenAI counts it inside
+    # completion_tokens; Gemini's compatible endpoint leaves it out and only adds it to total_tokens.
+    reasoning_tokens: int = 0
     cost_usd: float  # list price, from ledger.PRICES
     latency_s: float
 
     @property
     def total_tokens(self) -> int:
-        return self.prompt_tokens + self.completion_tokens
+        return self.prompt_tokens + self.completion_tokens + self.reasoning_tokens
 
 
 @cache
@@ -114,6 +118,9 @@ def _complete(
 
     usage = response.usage
     cached = (usage.prompt_tokens_details.cached_tokens if usage.prompt_tokens_details else 0) or 0
+    # Gemini 3 Flash models think before answering: e.g. 5,444 in + 123 out but total_tokens 6,184
+    # (Phase 6 build notes, E13). The gap is billed as output, so it is priced as output here.
+    reasoning = max(0, (getattr(usage, "total_tokens", 0) or 0) - usage.prompt_tokens - usage.completion_tokens)
     answered_by = response.model.removeprefix("models/")  # Gemini names models "models/gemini-..."
     message = response.choices[0].message
     result = ChatResult(
@@ -130,7 +137,8 @@ def _complete(
         prompt_tokens=usage.prompt_tokens,
         completion_tokens=usage.completion_tokens,
         cached_tokens=cached,
-        cost_usd=ledger.cost_usd(answered_by, usage.prompt_tokens, usage.completion_tokens, cached),
+        reasoning_tokens=reasoning,
+        cost_usd=ledger.cost_usd(answered_by, usage.prompt_tokens, usage.completion_tokens + reasoning, cached),
         latency_s=round(latency, 2),
     )
     ledger.record(
@@ -140,6 +148,7 @@ def _complete(
             prompt_tokens=result.prompt_tokens,
             cached_tokens=result.cached_tokens,
             completion_tokens=result.completion_tokens,
+            reasoning_tokens=result.reasoning_tokens,
             cost_usd=result.cost_usd,
         ),
         ledger_path,
@@ -189,12 +198,76 @@ def chat_json[T: BaseModel](
     Validation runs after the ledger write because a call is paid even if its answer fails.
     (The SDK's `.parse()` does the same in one call, but validates before we could record.)
     """
+    result = chat_schema(messages, schema, model, step, ledger_path, temperature)
+    return schema.model_validate_json(result.text), result
+
+
+def chat_schema(
+    messages: list[Message],
+    schema: type[BaseModel],
+    model: str | None = None,
+    step: str = "adhoc",
+    ledger_path: Path = DEFAULT_LEDGER,
+    temperature: float | None = None,
+) -> ChatResult:
+    """chat_json() without the validation: JSON in `schema`'s shape, recorded, returned as text.
+
+    For answers that hold several items (the Writer's 3 script options): one option breaking a
+    rule must not throw away the other two, so the caller validates item by item.
+    """
     response_format = {
         "type": "json_schema",
         "json_schema": {"name": schema.__name__, "schema": schema.model_json_schema(), "strict": True},
     }
-    result = _complete(messages, model, step, ledger_path, temperature, response_format=response_format)
-    return schema.model_validate_json(result.text), result
+    return _complete(messages, model, step, ledger_path, temperature, response_format=response_format)
+
+
+# --- pacing for the free tier ---------------------------------------------------------------
+
+MIN_INTERVAL_S = 4.5  # Gemini's free tier allows ~15 requests a minute: one every 4 s, plus a margin
+CHAT_RETRIES = 4
+OVERLOADED_WAIT_S = 30  # x attempt: a 503 "model is currently experiencing high demand" passes in a minute or two
+_last_request = float("-inf")  # time.monotonic() of the last paced request, shared by every caller
+
+
+class DailyQuotaError(RuntimeError):
+    """A per-day quota is used up: waiting minutes won't help, so it isn't retried (Phase 6, E11)."""
+
+
+def paced[T](call: Callable[[], T], sleep: Callable[[float], None] = time.sleep) -> T:
+    """Run one LLM request at most every MIN_INTERVAL_S, and wait out a 429 or a 5xx instead of failing.
+
+    A 429's wait is the one the error names ("Please retry in 12.75s", see _retry_delay); a 5xx
+    (Gemini's 503 "high demand", which ended run 1 of the Phase 6 build) waits 30 s, 60 s, 90 s: the
+    SDK's own two quick retries are not enough for a demand spike. A refused request isn't billed,
+    so only the call that succeeds lands in the ledger. The graph's nodes (Phase 6) send every
+    request through here.
+    """
+    global _last_request
+    for attempt in range(1, CHAT_RETRIES + 1):
+        wait = _last_request + MIN_INTERVAL_S - time.monotonic()
+        if wait > 0:
+            sleep(wait)
+        _last_request = time.monotonic()
+        try:
+            return call()
+        except RateLimitError as e:
+            if "PerDay" in str(e):  # a daily quota (20 requests per model on the free tier) won't clear in a minute
+                raise DailyQuotaError(f"the free tier's daily request quota for this model is used up (it resets at "
+                                      f"midnight Pacific time); try another model: {str(e)[:300]}") from e
+            if attempt == CHAT_RETRIES:
+                raise
+            delay = _retry_delay(e, attempt)
+            log.warning("chat: 429 rate limit, waiting %.0f s (attempt %d of %d): %s", delay, attempt, CHAT_RETRIES,
+                        str(e)[:300])
+            sleep(delay)
+        except InternalServerError as e:
+            if attempt == CHAT_RETRIES:
+                raise
+            log.warning("chat: %d from the provider, waiting %d s (attempt %d of %d)", e.status_code,
+                        OVERLOADED_WAIT_S * attempt, attempt, CHAT_RETRIES)
+            sleep(OVERLOADED_WAIT_S * attempt)
+    raise AssertionError("unreachable")
 
 
 # --- embeddings ------------------------------------------------------------------------------

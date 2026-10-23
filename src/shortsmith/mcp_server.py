@@ -57,7 +57,8 @@ mcp = MCPServer(
         "Makes ~30-second vertical short videos (YouTube Shorts, Reels, TikTok). "
         "Flow: (optional research: search_trends for what is getting views now, retrieve_hooks for "
         "proven hook patterns and brand rules) -> create_run with a script you write (or write_script) -> "
-        "generate_image and text_to_speech for every scene -> render_video, which saves final.mp4 in the run folder."
+        "generate_image and text_to_speech for every scene -> (optional and PAID with real media: animate_image for "
+        "ONE hero scene, only after the user agrees to the cost) -> render_video, which saves final.mp4 in the run folder."
     ),
 )
 
@@ -91,7 +92,7 @@ def new_run_dir() -> Path:
 
 def registry_tool(t: tools.Tool) -> Callable[..., BaseModel]:
     """The MCP version of a registry tool: the same function and arguments, plus run_id for a
-    media tool. (Research tools, Phase 5, work on no run and are published as they are.)
+    media or clip tool. (Research tools, Phase 5, work on no run and are published as they are.)
 
     In Phase 3 the program bound one run to every call (ToolContext). A server serves many
     conversations, so the run comes with each call, and the context is loaded from disk each
@@ -101,7 +102,7 @@ def registry_tool(t: tools.Tool) -> Callable[..., BaseModel]:
     MCPServer builds a tool's input schema from its function's signature, so this function
     gets one made from the registry's args model: one source for both front-ends.
     """
-    needs_run = t.group == "media"
+    needs_run = t.group != "research"  # media and clip tools work inside a run
 
     def call(**arguments: Any) -> BaseModel:
         try:

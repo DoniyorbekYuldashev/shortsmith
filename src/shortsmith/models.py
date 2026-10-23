@@ -117,3 +117,68 @@ class ResearchNotes(BaseModel):
         if self.visual_style.strip():
             lines.append(f"End every visual_prompt with these style words: {self.visual_style.strip()}")
         return "\n".join(lines)
+
+
+# --- the Critic (Phase 6): what it found, scene by scene ------------------------------------------
+
+CRITIC_MAX_WEAK = 3  # weak scenes per round: more than half the video flagged = a rewrite, not a fix
+
+
+class SceneIssue(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scene: int
+    problem: Literal["narration", "visual", "both"]  # what the reviser should change
+    reason: str  # what is wrong, in one sentence
+    fix: str  # one concrete change, so the regenerated scene really differs
+
+
+# What the critic model writes. A strict JSON schema can't express dict[int, str] (keys are always
+# strings in JSON, and Gemini's schema subset has no patternProperties), so the reasons per scene are a
+# list of SceneIssue instead of PLAN §5's `reasons: dict[int, str]`. (A comment, not a docstring:
+# Pydantic copies a model's docstring into its JSON schema, which is sent to the model on every call.)
+class CriticVerdict(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    score: float  # 0-10 for the video as a viewer would watch it
+    hook: str  # one sentence on the first 2 seconds
+    weak_scenes: list[SceneIssue]  # worst first
+    summary: str
+    cannot_judge: str  # what these inputs can't show (image quality on placeholder cards, ...)
+
+    @field_validator("score")
+    @classmethod
+    def score_in_range(cls, score: float) -> float:
+        return min(10.0, max(0.0, score))  # clamp, don't reject: the call is paid either way
+
+    @field_validator("weak_scenes")
+    @classmethod
+    def worst_few(cls, issues: list[SceneIssue]) -> list[SceneIssue]:
+        seen: set[int] = set()
+        unique = [i for i in issues if not (i.scene in seen or seen.add(i.scene))]  # one issue per scene
+        return unique[:CRITIC_MAX_WEAK]
+
+
+class ScriptChecks(BaseModel):
+    """Facts code measures before the critic reads the script: an LLM counts words badly."""
+
+    words: list[int]  # per scene
+    total_words: int
+    target: tuple[int, int]  # NARRATION_WORDS for the language, without the validator's slack
+    in_range: bool
+    hook_words: int
+    hook_copied_from: str | None  # where the hook was copied from word for word, None = its own
+
+
+class CriticReport(CriticVerdict):
+    """One critic round, as the graph keeps it (RunState.critic_rounds)."""
+
+    round: int  # 0 = the first edit, 1 = after the first revision, ...
+    mode: Literal["video", "script"]  # "script": no frames (the 6.8 prompt evaluation)
+    frames: list[int]  # the scenes whose frames the critic saw
+    model: str
+    checks: ScriptChecks
+
+    @property
+    def weak(self) -> list[int]:
+        return [issue.scene for issue in self.weak_scenes]

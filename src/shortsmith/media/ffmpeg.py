@@ -95,6 +95,34 @@ def ken_burns_cmd(image: Path, out: Path, duration_s: float, motion: Motion) -> 
     ]
 
 
+AI_CLIPS = Path("clips_ai")  # hero clips (media/animate.py), relative to the run folder
+
+
+def ai_clip_file(idx: int) -> Path:
+    return AI_CLIPS / f"scene_{idx:02d}.mp4"
+
+
+def clip_cmd(clip: Path, out: Path, duration_s: float) -> list[str]:
+    """A hero clip fitted to its scene, like ken_burns_cmd fits a still: scaled and cropped to
+    1080x1920 at 30 fps, looped if the voice is longer than the clip, cut to the frame count."""
+    n = frames(duration_s)
+    video_filter = ",".join([
+        f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase:flags=lanczos",
+        f"crop={WIDTH}:{HEIGHT}",
+        f"fps={FPS}",
+        "setsar=1",
+    ])
+    return FFMPEG + [
+        "-stream_loop", "-1", "-i", clip.as_posix(),
+        "-vf", video_filter,
+        "-frames:v", str(n),
+        "-an",  # the clip's own sound (if any) never reaches the mix
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+        "-pix_fmt", "yuv420p",
+        out.as_posix(),
+    ]
+
+
 def scene_frames(voiceovers: list[Voiceover]) -> list[int]:
     """How many frames each scene stays on screen: until its last spoken word, plus a pause.
 
@@ -221,7 +249,11 @@ def assemble(run_dir: Path, script: Script, voiceovers: list[Voiceover], music: 
     for scene, n in zip(script.scenes, counts, strict=True):
         clip = Path("clips") / f"scene_{scene.idx:02d}.mp4"
         image = Path("scenes") / f"scene_{scene.idx:02d}.png"
-        run(ken_burns_cmd(image, clip, n / FPS, scene.motion), cwd=run_dir)
+        hero = ai_clip_file(scene.idx)
+        if scene.motion == "ai_clip" and (run_dir / hero).exists():
+            run(clip_cmd(hero, clip, n / FPS), cwd=run_dir)  # the approved hero scene moves for real
+        else:
+            run(ken_burns_cmd(image, clip, n / FPS, scene.motion), cwd=run_dir)
         clips.append(clip)
     clip_list = Path("clips.txt")
     (run_dir / clip_list).write_text(concat_list(clips), encoding="utf-8")

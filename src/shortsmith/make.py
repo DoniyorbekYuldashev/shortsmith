@@ -4,11 +4,14 @@ Run from the repo root:
     uv run --env-file .env python -m shortsmith.make "coffee shop in Tashkent, cozy autumn vibe" --lang uz
     uv run --env-file .env python -m shortsmith.make "coffee shop in Tashkent" --research --brand anor-va-dolchin
     uv run --env-file .env python -m shortsmith.make --run runs/2026-10-21_201504
+    uv run --env-file .env python -m shortsmith.make "coffee shop in Tashkent" --graph --research --approve yes
 
 --research (Phase 5) first looks at real YouTube trends and retrieves fitting hook patterns,
 and the writer gets the Researcher's notes; --brand adds a brand's guideline. The last form
 rebuilds final.mp4 in an existing run folder without any LLM call: it reuses the script,
-images and voice files, and only makes the ones that are missing.
+images and voice files, and only makes the ones that are missing. --graph (Phase 6) runs the
+LangGraph pipeline instead (agents/graph.py): researcher, writer (3 options + pick), director, an
+approval step before the hero clip, producer, editor and a critic loop, checkpointed after every node.
 """
 
 import argparse
@@ -98,7 +101,27 @@ def main() -> None:
     parser.add_argument("--music", type=Path, help="your own music file (e.g. in data/music/); default: a generated bed")
     parser.add_argument("--research", action="store_true", help="ground the script in YouTube trends and retrieved hook patterns")
     parser.add_argument("--brand", help="write for a brand in data/hooks/brands/ (e.g. anor-va-dolchin); implies --research")
+    graph = parser.add_argument_group("the LangGraph pipeline (Phase 6)")
+    graph.add_argument("--graph", action="store_true", help="run the multi-agent graph: writer options, director, critic loop")
+    graph.add_argument("--resume", metavar="RUN_ID", help="continue a graph run from its last checkpoint")
+    graph.add_argument("--approve", choices=["yes", "no"], help="answer the hero-clip question without asking")
+    graph.add_argument("--max-rounds", type=int, default=2, help="critic -> revise rounds at most (default 2)")
+    graph.add_argument("--pass-score", type=float, default=7.0, help="critic score at which the video is done (default 7)")
+    graph.add_argument("--prompt", choices=["v1", "v2"], default="v2", help="writer prompt version (default v2)")
+    graph.add_argument("--mcp", action="store_true", help="the producer calls the media tools through the MCP server")
+    graph.add_argument("--no-trace", action="store_true", help="don't record the run in MLflow")
+    graph.add_argument("--crash-before", metavar="NODE", help="demo: kill the process when this node starts (resume proof)")
     args = parser.parse_args()
+    if args.resume:
+        if args.topic or args.run:
+            parser.error("--resume continues a run: give no topic and no --run")
+        from shortsmith.agents import graph as run_graph  # LangGraph is imported only when it is used
+        return run_graph.run_cli(args)
+    if args.graph:
+        if args.topic is None or args.run:
+            parser.error("--graph needs a topic (and no --run)")
+        from shortsmith.agents import graph as run_graph
+        return run_graph.run_cli(args)
     if (args.topic is None) == (args.run is None):
         parser.error("give either a topic or --run <run folder>")
     if args.music and not args.music.is_file():
