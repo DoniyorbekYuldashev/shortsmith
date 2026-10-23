@@ -28,6 +28,11 @@ PRICES: dict[str, dict[str, float]] = {
     # includes thinking tokens. 3.8 Flash doubles on 2027-01-01.
     "gemini-3.5-flash-lite": {"input": 0.30, "cached_input": 0.03, "output": 2.50},
     "gemini-3.8-flash": {"input": 0.75, "cached_input": 0.075, "output": 3.75},
+    # Embeddings: input only (a vector is not generated text). gemini-embedding-2: $0.20 per 1M
+    # text tokens on the paid tier, free on ours (same pricing page, checked 2026-10-23).
+    # text-embedding-3-small: OpenAI's list price, for when LLM_PROVIDER=openai again.
+    "gemini-embedding-2": {"input": 0.20, "cached_input": 0.20, "output": 0.0},
+    "text-embedding-3-small": {"input": 0.02, "cached_input": 0.02, "output": 0.0},
 }
 
 
@@ -41,6 +46,9 @@ class LedgerEntry(BaseModel):
     cached_tokens: int = 0
     completion_tokens: int
     cost_usd: float
+    # True when the provider reported no usage and the tokens were counted locally with
+    # tiktoken (Gemini's OpenAI-compatible embeddings endpoint sends usage: null).
+    tokens_estimated: bool = False
 
 
 def cost_usd(model: str, prompt_tokens: int, completion_tokens: int, cached_tokens: int = 0) -> float:

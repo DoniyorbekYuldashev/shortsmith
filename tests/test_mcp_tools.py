@@ -31,7 +31,7 @@ def box(tmp_path, monkeypatch):
 
 
 def test_the_model_sees_the_phase_3_schemas_with_run_id_hidden(box):
-    over_mcp = box.schemas(tools.TOOLS, hidden=["run_id"])
+    over_mcp = box.schemas(tools.names("media"), hidden=["run_id"])
     direct = tools.schemas()
     for mine, theirs in zip(over_mcp, direct, strict=True):
         theirs["function"]["parameters"].pop("additionalProperties")  # MCPServer doesn't forbid extra arguments
@@ -100,7 +100,7 @@ def test_the_phase_3_loop_reaches_final_mp4_through_mcp_unchanged(box, tmp_path,
     model = ScriptedLLM(answer(calls=[("render_video", {})]), answer(calls=everything),
                         answer(calls=[("render_video", {})]), answer("final.mp4 is ready."))
 
-    result = run_loop([{"role": "user", "content": "Make the video."}], box.schemas(tools.TOOLS, hidden=["run_id"]),
+    result = run_loop([{"role": "user", "content": "Make the video."}], box.schemas(tools.names("media"), hidden=["run_id"]),
                       model, box.tool_caller(run_id=run_id))
 
     too_early = json.loads(model.requests[1][-1]["content"])
