@@ -271,3 +271,23 @@ Full lesson: `docs/lessons/phase-5.md` (from `docs/lessons/phase-5-build-notes.m
 - **Interview one-liner:** "I built RAG from scratch over a multilingual hook library, measured chunking with hit@1 and MRR instead of guessing, and proved with a blind, order-swapped LLM judge that research improved 3 of 4 scripts, mostly in the hook."
 
 ---
+
+### 2026-10-24 — Phase 6: LangGraph + MLflow (the full system as a graph) ✅ Phase 6 complete
+Full lesson: `docs/lessons/phase-6.md` (from `docs/lessons/phase-6-build-notes.md`). Code: commit 667af69.
+- **Concepts learned:**
+  - Workflows (code picks the path) vs agents (the model picks it); our graph is a workflow with one evaluator–optimizer loop.
+  - LangGraph: a typed state, nodes that return only what they changed, fixed and conditional edges, `compile()`, `invoke()`. Used without LangChain's model layer, though `langchain-core` comes along as a dependency.
+  - Reducers = a merge policy per field: append (`operator.add`) for history, a custom sum for usage; nodes return deltas, never totals.
+  - The evaluator–optimizer loop: a conditional edge after the Critic, only weak scenes redone, a hard cap (pass at 7, at most 2 revisions).
+  - Checkpointing: state saved after every node (`durability="sync"`, `thread_id = run_id`), so a crash loses at most the node that was running; nodes must be idempotent; a class allowlist for the serializer.
+  - Human-in-the-loop: `interrupt()` pauses with the state saved, `Command(resume=...)` re-runs that node from its first line (so nothing with side effects goes before the interrupt).
+  - Observability: log (ledger, the money truth) vs trace (tree of spans, the debugging story); MLflow autolog sees Gemini through the OpenAI SDK; a span per node.
+  - Evaluation: versioned prompts, a blind stronger judge, metrics measured by code, honest about noise.
+  - Context engineering, measured per node.
+- **Results ($0):** run 1 went round the Critic loop twice and stopped at max rounds (5.5 → 6.2 → 6.0); run 2 survived an injected crash and a real `Stop-Process -Force` kill and passed at 7.8; run 3 went through the MCP server in one go (score 8, 100 s). Every resume added zero repeated paid calls. v1 vs v2: both 7.40, but copied hooks 11/14 → 0/14 and options in the word target 2/14 → 7/14. Context trimming: 2,926 vs 26,109 prompt tokens for the text nodes. 323 tests; exercise = 14 tests waiting for me.
+- **Errors that were lessons:** Smart App Control blocked brand-new native wheels (fixed with version pins, never with the security setting); the reviser invented "Bon Cafe on Mirobod street" and the Critic accepted it (now forbidden to invent facts); Gemini Flash's thinking tokens were missing from the ledger (found by reading a trace); each free Flash model allows 20 requests a day (the judge's quota, not money, limits evaluation); a 0-byte voice file left by a kill was correctly not trusted; docstrings were sent to the model inside JSON schemas.
+- **My questions → short answers:** why Phase 6 took long → 9 steps and slow free-tier calls, not code typing; what a CLI tool is → commands typed in a terminal (Phase 7); CLI vs MCP → two separate doors to the same functions, MCP is for other AI apps; fal.ai has no free tier, only a one-time sign-up credit.
+- **Open items:** the Critic doesn't converge across rounds; a fact check for revisions; length still missed sometimes; parallel media; fewer or smaller frames on placeholder cards; writer prompt v3; check fal's model id and price before the first real hero clip.
+- **Interview one-liner:** "My pipeline is a LangGraph graph with a vision Critic loop, checkpointed after every node so crashes resume without paying again, an approval interrupt before the one paid step, and an MLflow trace per run, which found three bugs no test caught."
+
+---

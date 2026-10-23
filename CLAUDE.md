@@ -80,18 +80,25 @@ chat interrupted my flow, so each phase now runs like this:
 - Gemini 3 tool calling: append the assistant message exactly as returned (`ChatResult.message`); it carries
   `extra_content.google.thought_signature`, and a history without it is rejected with a 400. Free-tier LLM
   turns can take 13–250 s (server-side queueing), so live agent demos are slow; that's not a bug.
+- Free tier, measured in Phase 6: **each Flash model allows only 20 requests a day** (resets midnight Pacific);
+  flash-lite has much more. Free-tier embeddings: 100 texts per minute. The Critic's model is
+  `SHORTSMITH_CRITIC_MODEL` (default `gemini-3.8-flash`, fallback `gemini-3.6-flash`).
+- Gemini Flash models think, and the compatible endpoint counts thinking only in `total_tokens`; `_complete()`
+  prices `total - prompt - completion` as reasoning (output rate). Keep that when touching the ledger.
+- Windows Smart App Control blocks brand-new native wheels (e.g. uuid-utils 0.18, pandas 3.1, SQLAlchemy 2.1):
+  `[tool.uv] constraint-dependencies` pins versions that load. Never change the security setting.
 
 ## Current progress
 Update this line at the end of every step:
-**Current phase/step:** Phase 6 next (LangGraph orchestration). Phase 5 built 2026-10-23: YouTube trends
-(`research/youtube.py`, 24 h cache, own cap 2,000 units/day), RAG over `data/hooks/` (`research/rag.py`,
-gemini-embedding-2 at 768, Chroma in `chroma/`), Researcher (`agents/researcher.py`), `make --research --brand`,
-experiment + retrieval eval; commit 2d88f2b (code) + e30d75f (lesson), lesson `docs/lessons/phase-5.md`.
-Gotcha: free-tier embeddings = 100 texts per minute (each text is one request).
-Phase 4 (MCP) done 2026-10-22. Owner still to do: the Claude Desktop test + README screenshot (phase-4 lesson §11;
-config file is under `%LOCALAPPDATA%\Claude-Data\...`, opened via Settings → Developer).
+**Current phase/step:** Phase 7 next (CLI tool). Phase 6 built 2026-10-24: LangGraph pipeline
+(`agents/graph.py`, `state.py`, writer/director/producer/critic/reviser), Critic loop (pass 7, max 2 revisions),
+SQLite checkpoints (`make --resume <run_id>`), hero-clip `interrupt` (`--approve yes|no`), MLflow tracing
+(`tracing.py`, `sqlite:///mlflow.db`), v1/v2 writer prompts (v2 default); commit 667af69 (code) + the lesson commit,
+lesson `docs/lessons/phase-6.md`. 323 tests.
+Phase 5 (research + RAG) done 2026-10-23. Owner still to do: the Claude Desktop test + README screenshot (phase-4
+lesson §11; config file is under `%LOCALAPPDATA%\Claude-Data\...`, opened via Settings → Developer).
 Exercises waiting (not done yet): `exercises/phase-2/` (Ken Burns), `exercises/phase-3/` (the agent loop),
-`exercises/phase-4/` (optional: MCP bridge), `exercises/phase-5/` (RAG math, 14 tests).
+`exercises/phase-4/` (optional: MCP bridge), `exercises/phase-5/` (RAG math), `exercises/phase-6/` (graph runner).
 Real FLUX images wait for credits or a free image source.
 Open items: Step 0.3 deferred by choice · OpenAI live comparison (tiktoken predicted 35 prompt_tokens;
 Gemini reported 26) waits for OpenAI credits.
