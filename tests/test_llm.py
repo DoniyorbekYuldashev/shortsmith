@@ -1,13 +1,17 @@
 """chat() with a fake OpenAI client: checks the ledger wiring without any API call or key."""
 
+import json
 from types import SimpleNamespace as NS
 
+import httpx
+import openai
 import pytest
 from openai.types.chat import ChatCompletionMessage
 from pydantic import BaseModel, ValidationError
 
-from shortsmith import llm
+from shortsmith import ledger, llm
 from shortsmith.ledger import LedgerEntry
+from shortsmith.models import HookIdea, ResearchNotes
 
 MESSAGES = [{"role": "user", "content": "hi"}]
 
@@ -158,3 +162,142 @@ def test_chat_tools_sends_the_schemas_and_keeps_the_message_as_returned(monkeypa
     assert result.message["tool_calls"][0]["extra_content"] == {"google": {"thought_signature": "EmAK..."}}
     assert "content" not in result.message  # None fields are left out, not sent back as null
     assert LedgerEntry.model_validate_json(path.read_text(encoding="utf-8")).step == "agent"
+
+
+# --- embed() -------------------------------------------------------------------------------------
+
+
+def _embedding_client(batches: list, seen: list | None = None):
+    """Mimics client.embeddings.create(**kwargs): answers with the next prepared response."""
+    answers = iter(batches)
+
+    def create(**kwargs):
+        if seen is not None:
+            seen.append(kwargs)
+        answer = next(answers)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    return NS(embeddings=NS(create=create))
+
+
+def _embeddings(vectors, model="gemini-embedding-2", usage=None, indexed=False):
+    return NS(model=model, usage=usage,
+              data=[NS(embedding=v, index=i if indexed else None) for i, v in enumerate(vectors)])
+
+
+def test_embed_estimates_tokens_when_the_provider_sends_no_usage(monkeypatch, tmp_path):
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    seen: list = []
+    monkeypatch.setattr(llm, "_client", lambda: _embedding_client([_embeddings([[0.1, 0.2], [0.3, 0.4]])], seen))
+    path = tmp_path / "ledger.jsonl"
+
+    result = llm.embed(["hello world", "salom dunyo"], dimensions=2, ledger_path=path)
+
+    assert result.vectors == [[0.1, 0.2], [0.3, 0.4]]  # Gemini sends index: null, in input order
+    assert seen[0] == {"model": "gemini-embedding-2", "input": ["hello world", "salom dunyo"], "dimensions": 2}
+    tokens = llm.estimate_tokens("hello world") + llm.estimate_tokens("salom dunyo")
+    assert (result.prompt_tokens, result.tokens_estimated) == (tokens, True)
+    entry = LedgerEntry.model_validate_json(path.read_text(encoding="utf-8"))
+    assert (entry.step, entry.prompt_tokens, entry.completion_tokens, entry.tokens_estimated) == ("embed", tokens, 0, True)
+    assert entry.cost_usd == pytest.approx(tokens * 0.20 / 1e6)
+
+
+def test_embed_uses_the_providers_usage_and_index_when_it_has_them(monkeypatch, tmp_path):
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    shuffled = _embeddings([[1.0], [2.0]], model="text-embedding-3-small", usage=NS(prompt_tokens=7), indexed=True)
+    shuffled.data.reverse()  # OpenAI numbers the vectors; the order of the list doesn't matter then
+    monkeypatch.setattr(llm, "_client", lambda: _embedding_client([shuffled]))
+
+    result = llm.embed(["a", "b"], dimensions=1, ledger_path=tmp_path / "ledger.jsonl")
+
+    assert result.vectors == [[1.0], [2.0]]
+    assert (result.model, result.prompt_tokens, result.tokens_estimated) == ("text-embedding-3-small", 7, False)
+
+
+def test_embed_splits_big_inputs_into_batches_and_records_each_request(monkeypatch, tmp_path):
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    monkeypatch.setattr(llm, "EMBED_BATCH", 2)
+    seen: list = []
+    client = _embedding_client([_embeddings([[1.0], [2.0]]), _embeddings([[3.0]])], seen)  # one client: one queue of answers
+    monkeypatch.setattr(llm, "_client", lambda: client)
+    path = tmp_path / "ledger.jsonl"
+
+    result = llm.embed(["a", "b", "c"], dimensions=1, ledger_path=path)
+
+    assert [call["input"] for call in seen] == [["a", "b"], ["c"]]
+    assert result.vectors == [[1.0], [2.0], [3.0]]
+    assert len(path.read_text(encoding="utf-8").splitlines()) == 2  # one ledger line per paid request
+
+
+def test_embed_rejects_vectors_of_the_wrong_size(monkeypatch, tmp_path):
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    monkeypatch.setattr(llm, "_client", lambda: _embedding_client([_embeddings([[1.0, 2.0, 3.0]])]))
+    path = tmp_path / "ledger.jsonl"
+    with pytest.raises(ValueError, match="asked for 1 vectors of 2 numbers"):
+        llm.embed(["a"], dimensions=2, ledger_path=path)
+    assert path.exists()  # the request was answered, so it is in the ledger anyway
+
+
+def test_embed_waits_as_long_as_a_429_says_and_tries_again(monkeypatch, tmp_path):
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    request = httpx.Request("POST", "https://example.test/embeddings")
+    limited = openai.RateLimitError(
+        "Quota exceeded for metric: embed_content_free_tier_requests, limit: 100. Please retry in 12.75s.",
+        response=httpx.Response(429, request=request), body=None)
+    client = _embedding_client([limited, _embeddings([[1.0]])])
+    monkeypatch.setattr(llm, "_client", lambda: client)
+    waited: list[float] = []
+    monkeypatch.setattr(llm.time, "sleep", waited.append)
+
+    result = llm.embed(["a"], dimensions=1, ledger_path=tmp_path / "ledger.jsonl")
+
+    assert result.vectors == [[1.0]] and waited == [pytest.approx(13.75)]
+    assert len((tmp_path / "ledger.jsonl").read_text(encoding="utf-8").splitlines()) == 1  # a refused request isn't billed
+
+
+def test_embed_refuses_an_unpriced_model_before_any_call(monkeypatch, tmp_path):
+    monkeypatch.setattr(llm, "_client", lambda: pytest.fail("called the API for a model without a price"))
+    with pytest.raises(ValueError, match="No price"):
+        llm.embed(["a"], model="mystery-embedding", ledger_path=tmp_path / "ledger.jsonl")
+
+
+def test_every_provider_has_a_priced_embedding_model():
+    for p in llm.PROVIDERS.values():
+        assert ledger.cost_usd(p.embedding_model, 1_000_000, 0) > 0
+
+
+# --- the writer with research ------------------------------------------------------------------
+
+
+NOTES = ResearchNotes(
+    trending=["Cafe tours with prices get 30k+ views"],
+    hooks=[HookIdea(pattern="Hidden gem", hook="Tashkent's best cafe has no sign", why="locals love secrets")],
+    angles=["steam on a cold morning"],
+    avoid=["luxury"],
+    visual_style="warm amber light, 35mm film look",
+)
+
+
+def test_the_writer_message_without_research_is_unchanged():
+    assert llm.writer_message("tea", "uz") == "Topic: tea\nLanguage: Uzbek (Latin script) (language code 'uz')"
+
+
+def test_write_script_puts_the_research_notes_into_the_user_message(monkeypatch, tmp_path):
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    seen: dict = {}
+    scenes = [{"idx": i, "narration": " ".join(["word"] * 13), "visual_prompt": "p", "duration_s": 5, "motion": "zoom_in"}
+              for i in range(1, 7)]
+    answer = json.dumps({"title": "t", "hook": "h", "scenes": scenes, "cta": "c", "language": "en"})
+    monkeypatch.setattr(llm, "_client", lambda: _fake_client(_response(answer, "gemini-3.5-flash-lite"), seen))
+    monkeypatch.setattr(llm, "DEFAULT_LEDGER", tmp_path / "ledger.jsonl")
+    monkeypatch.setattr(llm.ledger, "record", lambda entry, path: None)
+
+    llm.write_script("cafe", "en", research=NOTES)
+
+    system, user = seen["messages"]
+    assert system["content"] == llm.WRITER_SYSTEM_PROMPT  # the rules don't change with research
+    assert user["content"].startswith("Topic: cafe\nLanguage: English")
+    assert '- Hidden gem: "Tashkent\'s best cafe has no sign" (locals love secrets)' in user["content"]
+    assert "End every visual_prompt with these style words: warm amber light, 35mm film look" in user["content"]

@@ -12,20 +12,29 @@ results are short JSON (`{"ok": true, "path": "scenes/scene_02.png", ...}`), nev
 
 Two front-ends use this one registry: the agent loop (Phase 3, direct calls) and the MCP
 server (Phase 4, mcp_server.py), which publishes the same tools with a run_id added.
+
+Tools come in two groups. "media" tools work inside one run folder (they get a ToolContext).
+"research" tools (Phase 5: search_trends, retrieve_hooks) read the world and the knowledge
+base, not a run, so they take only their arguments. The producer agent is given only the
+media tools: research is the Researcher's job, and every schema it doesn't need costs tokens.
 """
 
 import inspect
 import json
 import subprocess
 from collections.abc import Callable
+from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from shortsmith.llm import Message
 from shortsmith.media import ffmpeg, images, tts
 from shortsmith.models import Scene, Script
+from shortsmith.research import rag, youtube
+
+Group = Literal["media", "research"]
 
 
 class ToolContext(BaseModel):
@@ -84,23 +93,26 @@ class Tool(BaseModel):
     name: str
     description: str  # written for the model: it decides when to call the tool from this text
     args: type[BaseModel]
-    fn: Callable[[ToolContext, Any], BaseModel]
+    fn: Callable[..., BaseModel]  # media: fn(ctx, args); research: fn(args)
+    group: Group = "media"
 
 
 TOOLS: dict[str, Tool] = {}
 
 
-def tool[A: BaseModel](
-    args: type[A],
-) -> Callable[[Callable[[ToolContext, A], BaseModel]], Callable[[ToolContext, A], BaseModel]]:
+def tool[F: Callable[..., BaseModel]](args: type[BaseModel], group: Group = "media") -> Callable[[F], F]:
     """Register a function as a tool. Its docstring becomes the description the model reads
     (FastMCP's @mcp.tool() in Phase 4 does the same)."""
 
-    def register(fn: Callable[[ToolContext, A], BaseModel]) -> Callable[[ToolContext, A], BaseModel]:
-        TOOLS[fn.__name__] = Tool(name=fn.__name__, description=inspect.getdoc(fn) or "", args=args, fn=fn)
+    def register(fn: F) -> F:
+        TOOLS[fn.__name__] = Tool(name=fn.__name__, description=inspect.getdoc(fn) or "", args=args, fn=fn, group=group)
         return fn
 
     return register
+
+
+def names(group: Group) -> list[str]:
+    return [t.name for t in TOOLS.values() if t.group == group]
 
 
 # --- arguments: what the model may send ---------------------------------------------------
@@ -192,6 +204,61 @@ def render_video(ctx: ToolContext, args: NoArgs) -> VideoResult:
     )
 
 
+# --- research tools (Phase 5): no run folder -------------------------------------------------
+
+
+class TrendArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(min_length=2, max_length=80, description=(
+        "What viewers would type into YouTube search: 2-5 keywords, e.g. 'Samarqand Registoni' or 'coffee shop Tashkent'."))
+    language: Literal["en", "uz", "ru"] = Field("en", description="The video's language: sets the search's language and region hints.")
+
+
+class TrendsResult(BaseModel):
+    query: str
+    since: date
+    from_cache: bool
+    units_used: int  # YouTube API quota spent by this call
+    videos: list[youtube.TrendVideo]
+
+
+class HookArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(min_length=2, max_length=300, description="The video's topic, or the kind of hook wanted. Any language.")
+    k: int = Field(rag.DEFAULT_K, ge=1, le=10, description="How many hook patterns to return.")
+    brand: str | None = Field(None, description=(
+        "Also return this brand's most relevant guideline sections, e.g. 'anor-va-dolchin' (a café) or "
+        "'samoviy-karvon' (a travel company). Leave it out for hook patterns only."))
+
+
+class HooksResult(BaseModel):
+    hooks: list[rag.Retrieved]
+    brand_rules: list[rag.Retrieved] = []
+
+
+@tool(TrendArgs, group="research")
+def search_trends(args: TrendArgs) -> TrendsResult:
+    """Find the most-viewed YouTube videos of Shorts length (3 minutes or less) from the last 30 days
+    for a search: title, channel, views, length, date and link, most viewed first. Real data, cached
+    for 24 hours. It is a keyword search: skip results about something else (a word can mean another
+    thing in another language). A live search uses 1% of the day's API quota, so search a few times, not dozens."""
+    report = youtube.search_trends(args.query, args.language)
+    return TrendsResult(query=report.query, since=report.published_after.date(), from_cache=report.from_cache,
+                        units_used=report.units_used, videos=report.videos)
+
+
+@tool(HookArgs, group="research")
+def retrieve_hooks(args: HookArgs) -> HooksResult:
+    """Find the hook patterns (the first 2 seconds of a short video) that fit a topic best, from
+    Shortsmith's library of ~70: name, template, examples in English, Uzbek and Russian, when to use it
+    and why it works, with a similarity score (0-1, higher is closer). With a brand, also that brand's
+    most relevant guideline sections (tone, words to use and avoid, visual style)."""
+    rules = rag.brand_rules(args.query, args.brand) if args.brand else []  # first: an unknown brand fails before any hook is embedded
+    return HooksResult(hooks=rag.retrieve(args.query, args.k), brand_rules=rules)
+
+
 class RunStatus(BaseModel):
     """What a run folder already has: the agent's task message and the MCP status resource say it."""
 
@@ -234,21 +301,27 @@ def schema(t: Tool) -> Message:
     }
 
 
-def schemas() -> list[Message]:
-    return [schema(t) for t in TOOLS.values()]
+def schemas(group: Group = "media") -> list[Message]:
+    """One group's tools for the API. The default is what the producer agent gets: the media tools."""
+    return [schema(t) for t in TOOLS.values() if t.group == group]
 
 
-def run_tool(ctx: ToolContext, name: str, arguments: str) -> BaseModel:
+def run_tool(ctx: ToolContext | None, name: str, arguments: str) -> BaseModel:
     """Run one tool call the model asked for and return its result model.
 
     Raises on an unknown name, invalid arguments or a failing tool. The loop catches that
     and sends the error back to the model as the result, so the model can retry or adapt;
-    the MCP server sends it back as an error result (isError) instead.
+    the MCP server sends it back as an error result (isError) instead. Research tools need
+    no run (ctx may be None); media tools do.
     """
     if name not in TOOLS:
         raise ValueError(f"unknown tool {name!r}; the tools are: {', '.join(TOOLS)}")
     t = TOOLS[name]
     args = t.args.model_validate_json(arguments or "{}")  # the model's JSON is input like any other: validate it
+    if t.group == "research":
+        return t.fn(args)
+    if ctx is None:
+        raise ValueError(f"{name} works inside a run, and no run was given")
     if name in ctx.fail_first and name not in ctx.failed:
         ctx.failed.add(name)
         raise ConnectionError("the service closed the connection without an answer")  # injected (--fail-first)
@@ -261,7 +334,7 @@ def ok_json(result: dict[str, Any]) -> str:
     return json.dumps({"ok": True, **result}, ensure_ascii=False)
 
 
-def call_tool(ctx: ToolContext, name: str, arguments: str) -> str:
+def call_tool(ctx: ToolContext | None, name: str, arguments: str) -> str:
     """run_tool() for the agent loop: the result as short JSON. Raises like run_tool()."""
     return ok_json(run_tool(ctx, name, arguments).model_dump(mode="json"))
 

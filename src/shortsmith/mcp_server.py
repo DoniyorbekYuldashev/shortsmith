@@ -55,8 +55,9 @@ mcp = MCPServer(
     name="shortsmith",
     instructions=(
         "Makes ~30-second vertical short videos (YouTube Shorts, Reels, TikTok). "
-        "Flow: create_run with a script you write (or write_script) -> generate_image and "
-        "text_to_speech for every scene -> render_video, which saves final.mp4 in the run folder."
+        "Flow: (optional research: search_trends for what is getting views now, retrieve_hooks for "
+        "proven hook patterns and brand rules) -> create_run with a script you write (or write_script) -> "
+        "generate_image and text_to_speech for every scene -> render_video, which saves final.mp4 in the run folder."
     ),
 )
 
@@ -85,11 +86,12 @@ def new_run_dir() -> Path:
     raise RuntimeError("could not make a new run folder")
 
 
-# --- the Phase 3 tools, published again with a run_id ---------------------------------------
+# --- the registry's tools, published again (media tools with a run_id) ---------------------
 
 
-def media_tool(t: tools.Tool) -> Callable[..., BaseModel]:
-    """The MCP version of a registry tool: the same function, the same arguments plus run_id.
+def registry_tool(t: tools.Tool) -> Callable[..., BaseModel]:
+    """The MCP version of a registry tool: the same function and arguments, plus run_id for a
+    media tool. (Research tools, Phase 5, work on no run and are published as they are.)
 
     In Phase 3 the program bound one run to every call (ToolContext). A server serves many
     conversations, so the run comes with each call, and the context is loaded from disk each
@@ -99,16 +101,19 @@ def media_tool(t: tools.Tool) -> Callable[..., BaseModel]:
     MCPServer builds a tool's input schema from its function's signature, so this function
     gets one made from the registry's args model: one source for both front-ends.
     """
+    needs_run = t.group == "media"
 
-    def call(run_id: str, **arguments: Any) -> BaseModel:
+    def call(**arguments: Any) -> BaseModel:
         try:
-            ctx = tools.ToolContext.for_run(run_dir(run_id), fail_first=FAIL_FIRST)
-            ctx.failed = FAILED  # shared on purpose: "fails once" means once per server process
+            ctx = None
+            if needs_run:
+                ctx = tools.ToolContext.for_run(run_dir(arguments.pop("run_id")), fail_first=FAIL_FIRST)
+                ctx.failed = FAILED  # shared on purpose: "fails once" means once per server process
             return tools.run_tool(ctx, t.name, json.dumps(arguments))
         except Exception as e:  # a ToolError's text reaches the model; any other exception's text stays on the server
             raise ToolError(tools.describe_error(e)) from e
 
-    params = [inspect.Parameter("run_id", inspect.Parameter.KEYWORD_ONLY, annotation=RunId)]
+    params = [inspect.Parameter("run_id", inspect.Parameter.KEYWORD_ONLY, annotation=RunId)] if needs_run else []
     for name, field in t.args.model_fields.items():
         default = inspect.Parameter.empty if field.is_required() else field.default
         params.append(inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY,
@@ -120,7 +125,7 @@ def media_tool(t: tools.Tool) -> Callable[..., BaseModel]:
 
 
 for _tool in tools.TOOLS.values():
-    mcp.add_tool(media_tool(_tool), name=_tool.name, description=_tool.description)
+    mcp.add_tool(registry_tool(_tool), name=_tool.name, description=_tool.description)
 
 
 # --- starting a run: what a chat app needs before the media tools ----------------------------
@@ -223,6 +228,8 @@ def make_short(topic: str, language: Literal["en", "uz", "ru"] = "en") -> str:
     return f"""Make a ~30-second vertical short video about: {topic}
 Language: {llm.LANGUAGES[language]} (language code '{language}').
 
+0. Research first: search_trends (2-5 keywords) shows what is getting views on YouTube now, and
+   retrieve_hooks gives hook patterns that fit the topic. Use one pattern for the hook.
 1. Write the script yourself and start the run with create_run. Write it as this brief says:
 ---
 {llm.WRITER_SYSTEM_PROMPT}
@@ -239,7 +246,7 @@ Language: {llm.LANGUAGES[language]} (language code '{language}').
 def main() -> None:
     parser = argparse.ArgumentParser(description="Shortsmith's MCP server over stdio. An MCP host starts it.")
     parser.add_argument("--root", type=Path, default=REPO_ROOT, help="the folder that holds runs/ (default: the repo)")
-    parser.add_argument("--fail-first", action="append", choices=sorted(tools.TOOLS), default=[],
+    parser.add_argument("--fail-first", action="append", choices=sorted(tools.names("media")), default=[],
                         help="demo: this tool's first call fails on purpose (repeatable)")
     args = parser.parse_args()
 

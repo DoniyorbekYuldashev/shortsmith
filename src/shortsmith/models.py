@@ -71,3 +71,49 @@ class Script(BaseModel):
         """Read a script.json saved by a run. Structure is re-checked; the word-count rule is
         for fresh LLM output only, so old runs can still be re-assembled."""
         return cls.model_validate_json(path.read_text(encoding="utf-8"), context={"saved": True})
+
+
+# --- research notes (Phase 5): what the Researcher hands the Writer ------------------------------
+
+# The notes go into the writer's prompt, so they are kept short: a model asked for "2-4" items
+# sometimes writes 6, and extras are cut rather than rejected (the call is paid either way).
+NOTES_MAX = {"trending": 4, "hooks": 3, "angles": 3, "avoid": 4}
+
+
+class HookIdea(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pattern: str  # a retrieved pattern's name, exactly as in the knowledge base
+    hook: str  # that pattern applied to this topic, in the video's language
+    why: str  # one sentence: why it fits this topic and audience
+
+
+class ResearchNotes(BaseModel):
+    """Compact, evidence-based notes: real trends + retrieved hook patterns (+ brand rules)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    trending: list[str]  # what gets views for this topic now, from the real top videos
+    hooks: list[HookIdea]  # the patterns that fit best, best first
+    angles: list[str]  # concrete angles or details the script can use
+    avoid: list[str]  # clichés, saturated angles, the brand's words to avoid
+    visual_style: str  # the brand's style words for every image prompt; "" without a brand
+
+    @field_validator("trending", "hooks", "angles", "avoid")
+    @classmethod
+    def keep_it_short(cls, items: list, info: ValidationInfo) -> list:
+        return items[: NOTES_MAX[info.field_name]]
+
+    def for_writer(self) -> str:
+        """The notes as the few lines the writer reads (context engineering: no scores, no ids, no URLs)."""
+        lines = ["Research notes (real YouTube trends of the last 30 days, and proven hook patterns):", "What gets views now:"]
+        lines += [f"- {item}" for item in self.trending]
+        lines.append("Hook patterns that fit. Base your hook on one of them (adapt it, don't copy it word for word):")
+        lines += [f"- {h.pattern}: \"{h.hook}\" ({h.why})" for h in self.hooks]
+        lines.append("Angles to use:")
+        lines += [f"- {item}" for item in self.angles]
+        lines.append("Avoid:")
+        lines += [f"- {item}" for item in self.avoid]
+        if self.visual_style.strip():
+            lines.append(f"End every visual_prompt with these style words: {self.visual_style.strip()}")
+        return "\n".join(lines)

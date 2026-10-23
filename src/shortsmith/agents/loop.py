@@ -223,6 +223,20 @@ def journal(log_path: Path) -> Callable[[Turn], None]:
     return write
 
 
+def offered_only(tool_schemas: list[Message], call_tool: CallTool) -> CallTool:
+    """Run only the tools the model was shown. The registry (and the MCP server) has more since
+    Phase 5 (search_trends, retrieve_hooks): a model that names one of those anyway gets the same
+    "unknown tool" error as for a made-up name, instead of spending YouTube quota."""
+    offered = [s["function"]["name"] for s in tool_schemas]
+
+    def call(name: str, arguments: str) -> str:
+        if name not in offered:
+            raise ValueError(f"unknown tool {name!r}; the tools are: {', '.join(offered)}")
+        return call_tool(name, arguments)
+
+    return call
+
+
 def produce(run_dir: Path, script: Script, status: tools.RunStatus, tool_schemas: list[Message],
             call_tool: CallTool, args: argparse.Namespace, via: str) -> None:
     """What both ways of reaching the tools share: the prompt, the loop, the log files, the summary."""
@@ -238,7 +252,7 @@ def produce(run_dir: Path, script: Script, status: tools.RunStatus, tool_schemas
         messages,
         tool_schemas,
         call_llm=llm_caller(args.model),
-        call_tool=call_tool,
+        call_tool=offered_only(tool_schemas, call_tool),
         max_steps=args.max_steps,
         max_tokens=args.max_tokens,
         log=journal(run_dir / "agent_log.jsonl"),
@@ -276,7 +290,7 @@ def produce_over_mcp(args: argparse.Namespace) -> None:
         status = tools.RunStatus.model_validate_json(box.read_text(f"shortsmith://runs/{run_id}/status"))
         via = (f"over MCP: server '{box.client.server_info.name}', protocol {box.client.protocol_version}, "
                f"started in {ready_s:.1f} s")
-        produce(Path("runs") / run_id, script, status, box.schemas(tools.TOOLS, hidden=["run_id"]),
+        produce(Path("runs") / run_id, script, status, box.schemas(tools.names("media"), hidden=["run_id"]),
                 box.tool_caller(run_id=run_id), args, via)
 
 
@@ -287,7 +301,7 @@ def main() -> None:
     where.add_argument("--from", dest="source", type=Path, help="copy this run's script.json into a new run folder")
     parser.add_argument("--max-steps", type=int, default=MAX_STEPS, help="LLM turns allowed")
     parser.add_argument("--max-tokens", type=int, default=MAX_TOKENS, help="prompt + completion tokens allowed")
-    parser.add_argument("--fail-first", action="append", choices=sorted(tools.TOOLS), default=[],
+    parser.add_argument("--fail-first", action="append", choices=sorted(tools.names("media")), default=[],
                         help="demo: this tool's first call fails on purpose (repeatable)")
     parser.add_argument("--model", help="default: the provider's default model")
     parser.add_argument("--allow-paid-media", action="store_true", help="needed when MOCK_MEDIA=0 (FLUX costs money)")

@@ -22,6 +22,7 @@ from shortsmith.models import Script
 from test_tools import _script, fake_synthesize
 
 MEDIA_TOOLS = {"generate_image", "text_to_speech", "render_video"}
+RESEARCH_TOOLS = {"search_trends", "retrieve_hooks"}  # Phase 5: no run_id
 
 
 def en_script(**changes) -> dict:
@@ -74,7 +75,7 @@ def fake_media(monkeypatch) -> None:
 
 def test_the_server_offers_the_registry_tools_plus_two_that_start_a_run(box):
     listed = {t.name: t for t in box.list_tools()}
-    assert set(listed) == MEDIA_TOOLS | {"create_run", "write_script"}
+    assert set(listed) == MEDIA_TOOLS | RESEARCH_TOOLS | {"create_run", "write_script"}
     for name in MEDIA_TOOLS:  # descriptions come from the Phase 3 docstrings, not a copy
         assert listed[name].description == tools.TOOLS[name].description
 
@@ -223,6 +224,54 @@ def test_fail_first_fails_once_per_server_process(box, runs, monkeypatch):
     assert not box.call("generate_image", {"run_id": run_id, "scene": 2}).is_error
 
 
+# --- the research tools over MCP (Phase 5) ----------------------------------------------------
+
+
+def test_research_tools_take_their_registry_arguments_and_no_run_id(box):
+    listed = {t.name: t for t in box.list_tools()}
+    for name in RESEARCH_TOOLS:
+        assert "run_id" not in listed[name].input_schema["properties"]  # they work on no run
+        assert listed[name].description == tools.TOOLS[name].description
+    registry = tools.schema(tools.TOOLS["retrieve_hooks"])["function"]["parameters"]
+    assert tools._without_titles(listed["retrieve_hooks"].input_schema)["properties"] == registry["properties"]
+    assert set(listed["search_trends"].output_schema["properties"]) == set(tools.TrendsResult.model_fields)
+
+
+def test_search_trends_over_mcp_returns_the_videos(box, monkeypatch):
+    from test_tools import _trend_report
+
+    monkeypatch.setattr(tools.youtube, "search_trends", lambda q, lang: _trend_report(q))
+    result = box.call("search_trends", {"query": "coffee Tashkent", "language": "en"})
+    assert not result.is_error
+    assert result.structured_content["videos"][0]["views"] == 12_000
+    assert mcp_tools.tool_message(result) == tools.call_tool(None, "search_trends", '{"query": "coffee Tashkent"}')
+
+
+def test_a_youtube_failure_is_an_error_result_the_model_can_read(box, monkeypatch):
+    def broken(query, language):
+        raise tools.youtube.QuotaError("a live search needs 101 units; 1950 of today's 2000 are used")
+
+    monkeypatch.setattr(tools.youtube, "search_trends", broken)
+    result = box.call("search_trends", {"query": "coffee"})
+    assert result.is_error
+    assert text(result) == ("Error executing tool search_trends: QuotaError: a live search needs 101 units; "
+                            "1950 of today's 2000 are used")
+
+
+def test_retrieve_hooks_over_mcp(box, monkeypatch):
+    from test_tools import _hit
+
+    monkeypatch.setattr(tools.rag, "retrieve", lambda query, k, kind="hook", brand=None: [_hit(f"{kind}-{i}", kind) for i in range(k)])
+    result = box.call("retrieve_hooks", {"query": "plov", "k": 2, "brand": "samoviy-karvon"})
+    assert [h["id"] for h in result.structured_content["hooks"]] == ["hook-0", "hook-1"]
+    assert len(result.structured_content["brand_rules"]) == 3
+
+
+def test_the_instructions_and_the_prompt_mention_research():
+    assert "search_trends" in mcp_server.mcp.instructions and "retrieve_hooks" in mcp_server.mcp.instructions
+    assert "retrieve_hooks" in mcp_server.make_short("plov", "uz")
+
+
 # --- resources and prompts -----------------------------------------------------------------
 
 
@@ -269,7 +318,7 @@ def test_the_prompt_is_a_template_with_the_writers_brief(box):
 def test_the_server_works_over_stdio_as_a_subprocess(tmp_path):
     a_run(tmp_path / "runs")
     with mcp_tools.McpToolbox.connect(mcp_tools.server_params(root=tmp_path)) as box:
-        assert {t.name for t in box.list_tools()} == MEDIA_TOOLS | {"create_run", "write_script"}
+        assert {t.name for t in box.list_tools()} == MEDIA_TOOLS | RESEARCH_TOOLS | {"create_run", "write_script"}
         result = box.call("generate_image", {"run_id": "r1", "scene": 1})
     assert result.structured_content["path"] == "scenes/scene_01.png"
     assert (tmp_path / "runs" / "r1" / "scenes" / "scene_01.png").exists()
@@ -320,7 +369,7 @@ def test_stdout_carries_only_json_rpc_even_when_a_tool_prints(tmp_path):
         server.wait(timeout=30)
         reader.join(timeout=10)  # every line the server ever wrote is in `lines` now
 
-    assert listed["id"] == 2 and len(listed["result"]["tools"]) == 5
+    assert listed["id"] == 2 and len(listed["result"]["tools"]) == 7
     assert called["id"] == 3 and called["result"]["structuredContent"]["path"] == "scenes/scene_01.png"
     leftover = []
     while not lines.empty():

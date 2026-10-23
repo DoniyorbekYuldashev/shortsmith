@@ -28,6 +28,9 @@ data/music/
 # Local vector store (rebuilt from data/hooks/)
 chroma/
 
+# Short-lived API caches (YouTube results: kept 24 h, never committed or shared)
+.cache/
+
 # LangGraph checkpoints + MLflow tracking data (local state, Phase 6)
 *.sqlite
 *.db

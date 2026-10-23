@@ -3,20 +3,24 @@
 Every agent calls the LLM through `chat()`, so tokens, cost and latency are measured in
 one place, and every call lands in the cost ledger. OpenAI and Gemini both speak this
 format, so switching provider only changes the address, the key and the model name.
+`embed()` does the same for embeddings (text -> vectors, for retrieval in research/rag.py).
 """
 
 import argparse
+import logging
 import os
+import re
 import time
 from functools import cache
 from pathlib import Path
 from typing import Any
 
-from openai import OpenAI
+import tiktoken
+from openai import OpenAI, RateLimitError
 from pydantic import BaseModel, Field, ValidationError
 
 from shortsmith import ledger
-from shortsmith.models import NARRATION_WORDS, SCENES_PLANNED, Script
+from shortsmith.models import NARRATION_WORDS, SCENES_PLANNED, ResearchNotes, Script
 
 DEMO_SYSTEM_PROMPT = "You are a short-video scriptwriter. Be concise."  # also used by tokens.py's prediction
 DEFAULT_LEDGER = ledger.DEFAULT_PATH
@@ -26,14 +30,17 @@ class Provider(BaseModel):
     base_url: str | None  # None = the SDK's default address (api.openai.com)
     key_env: str  # name of the environment variable that holds the API key
     default_model: str
+    embedding_model: str  # turns text into vectors for retrieval (research/rag.py)
 
 
 PROVIDERS = {
-    "openai": Provider(base_url=None, key_env="OPENAI_API_KEY", default_model="gpt-4.1-mini"),
+    "openai": Provider(base_url=None, key_env="OPENAI_API_KEY", default_model="gpt-4.1-mini",
+                       embedding_model="text-embedding-3-small"),
     "gemini": Provider(
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         key_env="GEMINI_API_KEY",
         default_model="gemini-3.5-flash-lite",
+        embedding_model="gemini-embedding-2",  # multilingual: an Uzbek query finds an English text
     ),
 }
 
@@ -190,6 +197,108 @@ def chat_json[T: BaseModel](
     return schema.model_validate_json(result.text), result
 
 
+# --- embeddings ------------------------------------------------------------------------------
+
+EMBED_DIMENSIONS = 768  # both models can shorten their vectors (3072 / 1536 by default); 768 is
+# one of Google's recommended sizes: 4x less to store and compare, little lost for short texts
+EMBED_BATCH = 100  # texts per request: Gemini's batch limit
+# Gemini's free tier counts every TEXT as one request, 100 per minute per model, batched or not
+# (Phase 5 build notes): re-indexing twice in a minute hits it. A 429 waits as long as the
+# error says (it names the delay) and tries again.
+EMBED_RETRIES = 3
+TIKTOKEN_ENCODING = "o200k_base"  # only for estimating tokens a provider didn't report
+
+log = logging.getLogger("shortsmith.llm")  # stderr, never stdout: the MCP server's stdout is its channel
+
+
+class EmbedResult(BaseModel):
+    """Vectors for a list of texts, in the same order, and what they cost."""
+
+    vectors: list[list[float]] = Field(repr=False)
+    model: str
+    dimensions: int
+    prompt_tokens: int  # embeddings only have input tokens
+    tokens_estimated: bool  # True = counted with tiktoken, because the provider sent no usage
+    cost_usd: float  # list price
+    latency_s: float
+
+
+@cache
+def _encoding() -> tiktoken.Encoding:
+    return tiktoken.get_encoding(TIKTOKEN_ENCODING)  # loaded once, on first use
+
+
+def estimate_tokens(text: str) -> int:
+    """tiktoken's count: exact for OpenAI models, an estimate for Gemini (~6% high on our tests)."""
+    return len(_encoding().encode(text))
+
+
+def _retry_delay(error: RateLimitError, attempt: int) -> float:
+    """How long a 429 asks us to wait: Gemini says "Please retry in 12.75s"; else 20 s per attempt."""
+    match = re.search(r"retry in ([\d.]+)s", str(error))
+    return float(match.group(1)) + 1 if match else 20.0 * attempt
+
+
+def _embed_request(batch: list[str], model: str, dimensions: int) -> Any:
+    """One embeddings request, retried after a 429. A refused request isn't billed."""
+    for attempt in range(1, EMBED_RETRIES + 1):
+        try:
+            return _client().embeddings.create(model=model, input=batch, dimensions=dimensions)
+        except RateLimitError as e:
+            if attempt == EMBED_RETRIES:
+                raise
+            delay = _retry_delay(e, attempt)
+            log.warning("embeddings: 429 rate limit (%d texts), waiting %.0f s", len(batch), delay)
+            time.sleep(delay)
+    raise AssertionError("unreachable")
+
+
+def embed(
+    texts: list[str],
+    model: str | None = None,
+    dimensions: int = EMBED_DIMENSIONS,
+    step: str = "embed",
+    ledger_path: Path = DEFAULT_LEDGER,
+) -> EmbedResult:
+    """Turn texts into vectors, up to EMBED_BATCH per request; every request goes in the ledger.
+
+    Gemini's OpenAI-compatible endpoint answers with usage: null for embeddings (its native
+    endpoint does count them), so those tokens are estimated with tiktoken and marked as such.
+    """
+    model = model or provider().embedding_model
+    ledger.cost_usd(model, 0, 0)  # no price, no call
+    vectors: list[list[float]] = []
+    tokens, estimated, latency, answered_by = 0, False, 0.0, model
+    for first in range(0, len(texts), EMBED_BATCH):
+        batch = texts[first : first + EMBED_BATCH]
+        start = time.perf_counter()
+        response = _embed_request(batch, model, dimensions)
+        latency += time.perf_counter() - start
+        answered_by = response.model.removeprefix("models/")
+        if response.usage is not None and response.usage.prompt_tokens:
+            batch_tokens, batch_estimated = response.usage.prompt_tokens, False
+        else:
+            batch_tokens, batch_estimated = sum(estimate_tokens(text) for text in batch), True
+        tokens, estimated = tokens + batch_tokens, estimated or batch_estimated
+        ledger.record(  # first, before anything else can fail: the request is already paid for
+            ledger.LedgerEntry(step=step, model=answered_by, prompt_tokens=batch_tokens, completion_tokens=0,
+                               cost_usd=ledger.cost_usd(answered_by, batch_tokens, 0), tokens_estimated=batch_estimated),
+            ledger_path,
+        )
+        items = response.data
+        if all(item.index is not None for item in items):  # OpenAI numbers them; Gemini sends index: null, in order
+            items = sorted(items, key=lambda item: item.index)
+        vectors += [item.embedding for item in items]
+    if len(vectors) != len(texts) or any(len(v) != dimensions for v in vectors):
+        raise ValueError(f"asked for {len(texts)} vectors of {dimensions} numbers, got "
+                         f"{len(vectors)} of {sorted({len(v) for v in vectors})}")
+    return EmbedResult(vectors=vectors, model=answered_by, dimensions=dimensions, prompt_tokens=tokens,
+                       tokens_estimated=estimated, cost_usd=ledger.cost_usd(answered_by, tokens, 0),
+                       latency_s=round(latency, 2))
+
+
+# --- the writer ------------------------------------------------------------------------------
+
 LANGUAGES = {"en": "English", "uz": "Uzbek (Latin script)", "ru": "Russian"}
 
 # Word targets come from models.NARRATION_WORDS, so the prompt and the validator can't disagree.
@@ -219,11 +328,21 @@ Rules:
 - Number scenes with idx 1, 2, 3, ... in order."""
 
 
-def write_script(topic: str, language: str = "en", model: str | None = None) -> tuple[Script, ChatResult]:
-    """One topic in, one validated Script out (this becomes the Writer agent in Phase 6)."""
+def writer_message(topic: str, language: str, research: ResearchNotes | None = None) -> str:
+    """The writer's user message. Research notes, when there are any, go here and not into the
+    system prompt: they change with every topic, the rules don't."""
+    message = f"Topic: {topic}\nLanguage: {LANGUAGES[language]} (language code '{language}')"
+    return f"{message}\n\n{research.for_writer()}" if research else message
+
+
+def write_script(
+    topic: str, language: str = "en", model: str | None = None, research: ResearchNotes | None = None
+) -> tuple[Script, ChatResult]:
+    """One topic in, one validated Script out (this becomes the Writer agent in Phase 6).
+    With `research` (agents/researcher.py), the script is grounded in real trends and hook patterns."""
     messages = [
         {"role": "system", "content": WRITER_SYSTEM_PROMPT},
-        {"role": "user", "content": f"Topic: {topic}\nLanguage: {LANGUAGES[language]} (language code '{language}')"},
+        {"role": "user", "content": writer_message(topic, language, research)},
     ]
     return chat_json(messages, Script, model=model, step="writer")
 

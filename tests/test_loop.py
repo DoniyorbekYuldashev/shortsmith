@@ -319,3 +319,17 @@ def test_paid_media_needs_an_explicit_flag(monkeypatch):
     monkeypatch.setattr("sys.argv", ["loop", "--run", "runs/nowhere"])
     with pytest.raises(SystemExit):
         loop.main()
+
+
+def test_the_producer_cannot_run_a_research_tool_it_was_not_shown(monkeypatch):
+    """Since Phase 5 the registry also has search_trends and retrieve_hooks. The producer is shown only
+    the media tools, and a call to anything else is an unknown tool, exactly as in Phase 3."""
+    monkeypatch.setattr(tools.youtube, "search_trends", lambda *a, **k: pytest.fail("the producer spent YouTube quota"))
+    model = ScriptedLLM(answer(calls=[("search_trends", {"query": "coffee"})]), answer("Sorry."))
+    passed = FakeTools()
+    run_loop(start(), tools.schemas(), model, loop.offered_only(tools.schemas(), passed))
+
+    error = json.loads(model.requests[1][-1]["content"])["error"]
+    assert error == "ValueError: unknown tool 'search_trends'; the tools are: generate_image, text_to_speech, render_video"
+    assert passed.calls == []
+    assert loop.offered_only(tools.schemas(), passed)("generate_image", '{"scene": 1}')  # offered tools pass through

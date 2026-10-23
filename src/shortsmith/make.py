@@ -2,10 +2,13 @@
 
 Run from the repo root:
     uv run --env-file .env python -m shortsmith.make "coffee shop in Tashkent, cozy autumn vibe" --lang uz
+    uv run --env-file .env python -m shortsmith.make "coffee shop in Tashkent" --research --brand anor-va-dolchin
     uv run --env-file .env python -m shortsmith.make --run runs/2026-10-21_201504
 
-The second form rebuilds final.mp4 in an existing run folder without any LLM call: it reuses
-the script, images and voice files, and only makes the ones that are missing.
+--research (Phase 5) first looks at real YouTube trends and retrieves fitting hook patterns,
+and the writer gets the Researcher's notes; --brand adds a brand's guideline. The last form
+rebuilds final.mp4 in an existing run folder without any LLM call: it reuses the script,
+images and voice files, and only makes the ones that are missing.
 """
 
 import argparse
@@ -18,6 +21,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from shortsmith import ledger
+from shortsmith.agents import researcher
 from shortsmith.llm import LANGUAGES, write_script
 from shortsmith.media import ffmpeg, images, tts
 from shortsmith.models import Script
@@ -34,12 +38,14 @@ def step(name: str) -> Iterator[None]:
     print(f"{time.perf_counter() - start:.1f} s")
 
 
-def new_run(topic: str, language: str) -> Path:
-    """The only LLM call: write a script and save it in a fresh run folder."""
-    script, _ = write_script(topic, language)
+def new_run(topic: str, language: str, research: researcher.Research | None = None) -> Path:
+    """Write a script (one LLM call) and save it in a fresh run folder, with the research behind it."""
+    script, _ = write_script(topic, language, research=research.notes if research else None)
     run_dir = Path("runs") / datetime.now().strftime("%Y-%m-%d_%H%M%S")
     run_dir.mkdir(parents=True)
     (run_dir / "script.json").write_text(script.model_dump_json(indent=2), encoding="utf-8")
+    if research:
+        (run_dir / "research.json").write_text(research.model_dump_json(indent=2), encoding="utf-8")
     return run_dir
 
 
@@ -90,17 +96,26 @@ def main() -> None:
     parser.add_argument("--lang", choices=sorted(LANGUAGES), default="en")
     parser.add_argument("--run", type=Path, help="rebuild final.mp4 in this existing run folder, no LLM call")
     parser.add_argument("--music", type=Path, help="your own music file (e.g. in data/music/); default: a generated bed")
+    parser.add_argument("--research", action="store_true", help="ground the script in YouTube trends and retrieved hook patterns")
+    parser.add_argument("--brand", help="write for a brand in data/hooks/brands/ (e.g. anor-va-dolchin); implies --research")
     args = parser.parse_args()
     if (args.topic is None) == (args.run is None):
         parser.error("give either a topic or --run <run folder>")
     if args.music and not args.music.is_file():
         parser.error(f"music file not found: {args.music}")
+    if args.run and (args.research or args.brand):
+        parser.error("--research and --brand are for a new topic, not --run")
 
     start, cost_before = time.perf_counter(), ledger.total_cost(ledger.DEFAULT_PATH)
     if args.topic:
+        research = None
+        if args.research or args.brand:
+            with step("researching (YouTube trends + hook library)"):
+                research = researcher.research(args.topic, args.lang, args.brand)
+            print(researcher.summary(research))
         try:
             with step(f"writing the script ({LANGUAGES[args.lang]})"):
-                run_dir = new_run(args.topic, args.lang)
+                run_dir = new_run(args.topic, args.lang, research)
         except ValidationError as e:
             print(f"\nThe model's script broke {e.error_count()} rule(s) (the call is still in the ledger):")
             for error in e.errors():
