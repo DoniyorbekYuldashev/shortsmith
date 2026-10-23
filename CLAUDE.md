@@ -83,12 +83,15 @@ chat interrupted my flow, so each phase now runs like this:
 
 ## Current progress
 Update this line at the end of every step:
-**Current phase/step:** Phase 5 next (research + RAG). Phase 4 built 2026-10-22: MCP server
-(`mcp_server.py`, mcp 2.3.0 `MCPServer`), agent over MCP (`agents/mcp_tools.py`, `loop --mcp`), lesson
-`docs/lessons/phase-4.md`, commit 57198ec (code) + the lesson commit. Owner still to do: the Claude Desktop test
-+ README screenshot (lesson §11; config file is under `%LOCALAPPDATA%\Claude-Data\...`, opened via Settings → Developer).
+**Current phase/step:** Phase 6 next (LangGraph orchestration). Phase 5 built 2026-10-23: YouTube trends
+(`research/youtube.py`, 24 h cache, own cap 2,000 units/day), RAG over `data/hooks/` (`research/rag.py`,
+gemini-embedding-2 at 768, Chroma in `chroma/`), Researcher (`agents/researcher.py`), `make --research --brand`,
+experiment + retrieval eval; commit 2d88f2b (code) + e30d75f (lesson), lesson `docs/lessons/phase-5.md`.
+Gotcha: free-tier embeddings = 100 texts per minute (each text is one request).
+Phase 4 (MCP) done 2026-10-22. Owner still to do: the Claude Desktop test + README screenshot (phase-4 lesson §11;
+config file is under `%LOCALAPPDATA%\Claude-Data\...`, opened via Settings → Developer).
 Exercises waiting (not done yet): `exercises/phase-2/` (Ken Burns), `exercises/phase-3/` (the agent loop),
-`exercises/phase-4/` (optional: MCP bridge).
+`exercises/phase-4/` (optional: MCP bridge), `exercises/phase-5/` (RAG math, 14 tests).
 Real FLUX images wait for credits or a free image source.
 Open items: Step 0.3 deferred by choice · OpenAI live comparison (tiktoken predicted 35 prompt_tokens;
 Gemini reported 26) waits for OpenAI credits.

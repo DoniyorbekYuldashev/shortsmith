@@ -65,7 +65,7 @@ Researcher   Writer    Director     Producer      Editor     Critic
 | Part | Tool | Cost |
 |---|---|---|
 | LLM | Gemini free tier (`gemini-3.5-flash-lite`, `gemini-3.8-flash`) through the OpenAI-compatible endpoint while building; OpenAI `gpt-4.1-mini` kept as a switch (`LLM_PROVIDER`) | ~$0 |
-| Embeddings | OpenAI `text-embedding-3-small` | fractions of a cent |
+| Embeddings | Gemini `gemini-embedding-2` at 768 dimensions (free tier; OpenAI's model stays behind `LLM_PROVIDER=openai`) | $0 on the free tier |
 | Vector DB | Chroma (local) | free |
 | Images | fal.ai FLUX schnell (~$0.003/image) | ~$0.02 per video |
 | Hero clip (1 per video) | fal.ai image-to-video: Wan 2.5 480p / Veo 3.1 Lite from ~$0.05/s, Kling ~$0.07–0.11/s, premium models $0.30–0.75/s (checked 2026-10-21; verify the live price first) | ~$0.25–0.60 per 5-s clip |
