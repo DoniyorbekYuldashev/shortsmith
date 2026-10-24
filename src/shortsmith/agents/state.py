@@ -67,6 +67,10 @@ class RunState(BaseModel):
     max_rounds: int = 2  # revision rounds after the first review, at most
     pass_score: float = 7.0  # the critic's score at which a video is done
     via_mcp: bool = False  # the producer reaches the media tools through the MCP server
+    # Phase 7 (the CLI). Saved with the run, so a resume keeps them unless its own flags say otherwise.
+    budget_usd: float | None = None  # hard limit in LIST price; checked before every priced node (budget.py)
+    hero_clips: int = 1  # 0 = Ken Burns for every scene, 1 = the director's one approval-gated hero clip
+    media: Literal["mock", "real"] = "mock"  # what MOCK_MEDIA was when the run started (runs before Phase 7: mock)
 
     # --- what the nodes produce (replaced) ---
     research: ResearchNotes | None = None

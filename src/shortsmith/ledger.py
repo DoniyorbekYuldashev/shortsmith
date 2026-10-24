@@ -95,11 +95,19 @@ def record(entry: LedgerEntry, path: Path) -> None:
 
 
 def entries(path: Path, run_id: str | None = None) -> list[LedgerEntry]:
-    """Every line, or only one graph run's. A missing file means nothing was spent yet."""
+    """Every line, or only one graph run's. A missing file means nothing was spent yet.
+
+    Parsed with CURRENT_RUN cleared: run_id's default_factory also runs for a line that has no
+    run_id (every line from before Phase 6), and inside a node it would claim all of them for the
+    current run. That made a new run look $0.066 spent at its first budget check (Phase 7, E-ledger)."""
     if not path.exists():
         return []
     lines = path.read_text(encoding="utf-8").splitlines()
-    found = [LedgerEntry.model_validate_json(line) for line in lines if line.strip()]
+    token = CURRENT_RUN.set(None)
+    try:
+        found = [LedgerEntry.model_validate_json(line) for line in lines if line.strip()]
+    finally:
+        CURRENT_RUN.reset(token)
     return [e for e in found if run_id is None or e.run_id == run_id]
 
 

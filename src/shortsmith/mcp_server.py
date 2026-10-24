@@ -244,12 +244,13 @@ Language: {llm.LANGUAGES[language]} (language code '{language}').
 # --- running it -------------------------------------------------------------------------------
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    """`python -m shortsmith.mcp_server` (argv from the command line) or `shortsmith mcp` (argv given)."""
     parser = argparse.ArgumentParser(description="Shortsmith's MCP server over stdio. An MCP host starts it.")
     parser.add_argument("--root", type=Path, default=REPO_ROOT, help="the folder that holds runs/ (default: the repo)")
     parser.add_argument("--fail-first", action="append", choices=sorted(tools.names("media")), default=[],
                         help="demo: this tool's first call fails on purpose (repeatable)")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # A host starts the server from its own folder (Claude Desktop: its install folder), and
     # runs/, the ledger and ffmpeg's inputs are relative paths. So move to the repo first.

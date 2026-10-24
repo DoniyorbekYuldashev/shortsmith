@@ -45,6 +45,7 @@ def setup(experiment: str = EXPERIMENT, uri: str = TRACKING_URI) -> bool:
     os.environ.setdefault("MLFLOW_DISABLE_TELEMETRY", "true")
     os.environ.setdefault("DO_NOT_TRACK", "true")
     os.environ.setdefault("MLFLOW_DISABLE_AGENT_HINT", "1")  # a "load this skill" hint MLflow 3.17 prints on import
+    os.environ.setdefault("MLFLOW_LOGGING_LEVEL", "WARNING")  # no INFO lines ("Flushing the async trace queue...") in the CLI
     try:
         import mlflow
 

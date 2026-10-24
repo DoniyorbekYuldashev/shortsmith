@@ -111,6 +111,12 @@ def apply_plan(script: Script, plan: DirectorPlan, visual_style: str = "") -> tu
     return script.model_copy(update={"scenes": scenes}), hero
 
 
+def ken_burns_only(plan: Script, hero: HeroPlan) -> Script:
+    """`--hero-clips 0`: the hero scene keeps the director's own camera move; no clip is ever asked for."""
+    return plan.model_copy(update={"scenes": [s.model_copy(update={"motion": hero.fallback}) if s.motion == "ai_clip"
+                                              else s for s in plan.scenes]})
+
+
 def direct(script: Script, visual_style: str = "",
            model: str | None = None) -> tuple[Script, HeroPlan, DirectorPlan, ChatResult]:
     """One call: the shot list for the chosen script (the raw plan is returned too, for director.json)."""

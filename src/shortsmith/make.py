@@ -1,5 +1,9 @@
 """Phase 2 end to end, no agents yet: topic -> script -> images -> voice -> runs/<id>/final.mp4.
 
+Phase 7's `shortsmith` command (cli.py) is the friendlier front end: `shortsmith make "topic"` runs
+the graph, `shortsmith make "topic" --simple` this straight pipeline. This module stays as it was, so
+the commands in the Phase 2-6 lessons keep working.
+
 Run from the repo root:
     uv run --env-file .env python -m shortsmith.make "coffee shop in Tashkent, cozy autumn vibe" --lang uz
     uv run --env-file .env python -m shortsmith.make "coffee shop in Tashkent" --research --brand anor-va-dolchin
@@ -41,10 +45,12 @@ def step(name: str) -> Iterator[None]:
     print(f"{time.perf_counter() - start:.1f} s")
 
 
-def new_run(topic: str, language: str, research: researcher.Research | None = None) -> Path:
-    """Write a script (one LLM call) and save it in a fresh run folder, with the research behind it."""
+def new_run(topic: str, language: str, research: researcher.Research | None = None,
+            run_dir: Path | None = None) -> Path:
+    """Write a script (one LLM call) and save it in a fresh run folder, with the research behind it.
+    `run_dir`: a folder name chosen first (`shortsmith make --simple` tags the ledger with it)."""
     script, _ = write_script(topic, language, research=research.notes if research else None)
-    run_dir = Path("runs") / datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    run_dir = run_dir or Path("runs") / datetime.now().strftime("%Y-%m-%d_%H%M%S")
     run_dir.mkdir(parents=True)
     (run_dir / "script.json").write_text(script.model_dump_json(indent=2), encoding="utf-8")
     if research:
