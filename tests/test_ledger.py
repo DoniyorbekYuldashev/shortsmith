@@ -74,3 +74,18 @@ def test_lines_from_before_phase_6_still_parse(tmp_path):
     path.write_text('{"ts": "2026-10-20T10:00:00Z", "step": "writer", "model": "m", "prompt_tokens": 1, '
                     '"cached_tokens": 0, "completion_tokens": 1, "cost_usd": 0.1}\n', encoding="utf-8")
     assert ledger.entries(path)[0].run_id is None and ledger.entries(tmp_path / "missing.jsonl") == []
+
+
+def test_reading_inside_a_run_never_claims_old_lines_for_it(tmp_path):
+    """Phase 7: the default_factory also runs when a line without run_id is PARSED, so inside a node
+    every pre-Phase-6 line read back as the current run's (a fresh run looked $0.066 spent)."""
+    path = tmp_path / "ledger.jsonl"
+    path.write_text('{"ts": "2026-10-20T10:00:00Z", "step": "writer", "model": "m", "prompt_tokens": 1, '
+                    '"completion_tokens": 1, "cost_usd": 0.1}\n', encoding="utf-8")
+    token = ledger.CURRENT_RUN.set("2026-10-24_184531")
+    try:
+        assert ledger.entries(path, "2026-10-24_184531") == [] and ledger.entries(path)[0].run_id is None
+        record(LedgerEntry(step="critic", model="m", prompt_tokens=1, completion_tokens=1, cost_usd=0.2), path)
+        assert [e.step for e in ledger.entries(path, "2026-10-24_184531")] == ["critic"]  # new lines are still tagged
+    finally:
+        ledger.CURRENT_RUN.reset(token)

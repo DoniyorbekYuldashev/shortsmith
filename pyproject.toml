@@ -19,12 +19,15 @@ dependencies = [
     "openai>=3.33.0",
     "pillow>=13.0.0",
     "pydantic>=2.14.1",
+    "python-dotenv>=1.2.4",
+    "rich>=15.0.0",
     "tiktoken>=0.14.0",
+    "typer>=0.27.3",
     "tzdata>=2026.5",
 ]
 
 [project.scripts]
-shortsmith = "shortsmith:main"
+shortsmith = "shortsmith.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.13.1,<0.14.0"]

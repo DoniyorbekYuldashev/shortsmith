@@ -4262,7 +4262,10 @@ dependencies = [
     { name = "openai" },
     { name = "pillow" },
     { name = "pydantic" },
+    { name = "python-dotenv" },
+    { name = "rich" },
     { name = "tiktoken" },
+    { name = "typer" },
     { name = "tzdata" },
 ]
 
@@ -4284,7 +4287,10 @@ requires-dist = [
     { name = "openai", specifier = ">=3.33.0" },
     { name = "pillow", specifier = ">=13.0.0" },
     { name = "pydantic", specifier = ">=2.14.1" },
+    { name = "python-dotenv", specifier = ">=1.2.4" },
+    { name = "rich", specifier = ">=15.0.0" },
     { name = "tiktoken", specifier = ">=0.14.0" },
+    { name = "typer", specifier = ">=0.27.3" },
     { name = "tzdata", specifier = ">=2026.5" },
 ]
 

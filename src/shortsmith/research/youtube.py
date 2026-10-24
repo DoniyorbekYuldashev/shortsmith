@@ -165,14 +165,16 @@ def duration_seconds(iso: str) -> int | None:
     return ((days * 24 + hours) * 60 + minutes) * 60 + seconds
 
 
-def _get(client: httpx.Client, endpoint: str, params: dict[str, Any], units: int, query: str, quota_path: Path) -> dict:
+def _get(client: httpx.Client, endpoint: str, params: dict[str, Any], units: int, query: str, quota_path: Path,
+         now: datetime) -> dict:
     """One GET, its units logged whatever the answer. The key travels in a header, so it is in
     no URL, log line or error message."""
     key = os.environ.get("YOUTUBE_API_KEY")
     if not key:
         raise YouTubeError("YOUTUBE_API_KEY is empty: add it to .env")
     response = client.get(f"{API}/{endpoint}", params=params, headers={"X-Goog-Api-Key": key})
-    record_units(QuotaEntry(endpoint=endpoint, units=units, query=query, status=response.status_code), quota_path)
+    # logged at the search's own `now` (the wall clock in real use): a test with a fixed clock stays on its day
+    record_units(QuotaEntry(ts=now, endpoint=endpoint, units=units, query=query, status=response.status_code), quota_path)
     if response.status_code == 200:
         return response.json()
     try:
@@ -250,7 +252,7 @@ def search_trends(
     own_client = client is None
     client = client or httpx.Client(timeout=20)
     try:
-        found = _get(client, "search", search_params, SEARCH_UNITS, query, quota_path)
+        found = _get(client, "search", search_params, SEARCH_UNITS, query, quota_path, now)
         ids = [item["id"]["videoId"] for item in found.get("items", []) if item.get("id", {}).get("videoId")]
         items = []
         if ids:
@@ -258,7 +260,7 @@ def search_trends(
                 "part": "snippet,statistics,contentDetails,player", "id": ",".join(ids),
                 "maxWidth": 180,  # asks for the embed player's size, which follows the video's shape
                 "fields": "items(id,snippet(title,channelTitle,publishedAt),statistics,contentDetails(duration),player(embedWidth,embedHeight))",
-            }, VIDEOS_UNITS, query, quota_path)
+            }, VIDEOS_UNITS, query, quota_path, now)
             items = details.get("items", [])
     finally:
         if own_client:
