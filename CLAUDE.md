@@ -87,18 +87,21 @@ chat interrupted my flow, so each phase now runs like this:
   prices `total - prompt - completion` as reasoning (output rate). Keep that when touching the ledger.
 - Windows Smart App Control blocks brand-new native wheels (e.g. uuid-utils 0.18, pandas 3.1, SQLAlchemy 2.1):
   `[tool.uv] constraint-dependencies` pins versions that load. Never change the security setting.
+- The owner's terminal is Windows PowerShell 5.1 (console code page IBM437): `>` and `|` re-encode a program's output,
+  so Uzbek text gets garbled. Use `-o FILE` or `--json` (ASCII) on list/show/cost, or `cmd /c "... > file"`.
 
 ## Current progress
 Update this line at the end of every step:
-**Current phase/step:** Phase 7 next (CLI tool). Phase 6 built 2026-10-24: LangGraph pipeline
-(`agents/graph.py`, `state.py`, writer/director/producer/critic/reviser), Critic loop (pass 7, max 2 revisions),
-SQLite checkpoints (`make --resume <run_id>`), hero-clip `interrupt` (`--approve yes|no`), MLflow tracing
-(`tracing.py`, `sqlite:///mlflow.db`), v1/v2 writer prompts (v2 default); commit 667af69 (code) + the lesson commit,
-lesson `docs/lessons/phase-6.md`. 323 tests.
-Phase 5 (research + RAG) done 2026-10-23. Owner still to do: the Claude Desktop test + README screenshot (phase-4
+**Current phase/step:** Phase 8 next (web app). Phase 7 built 2026-10-24: the `shortsmith` command
+(`cli.py`, `console.py`, `views.py`, `runs.py`, `costs.py`, `budget.py`, `rerun.py`): make / resume / rerun-scene /
+list / show / cost / doctor / mcp, `--budget` (list price, exit 4), guarded `--real`, `--json`; commit 04cfd7e (code) +
+the lesson commit, lesson `docs/lessons/phase-7.md`. 391 tests.
+Make a video now with `uv run shortsmith make "topic"` (the command loads `.env` itself; `python -m shortsmith.make`
+still works). `uv run shortsmith doctor` checks the setup without printing keys.
+Phase 6 (LangGraph + MLflow) done 2026-10-24. Phase 5 (research + RAG) done 2026-10-23. Owner still to do: the Claude Desktop test + README screenshot (phase-4
 lesson §11; config file is under `%LOCALAPPDATA%\Claude-Data\...`, opened via Settings → Developer).
 Exercises waiting (not done yet): `exercises/phase-2/` (Ken Burns), `exercises/phase-3/` (the agent loop),
-`exercises/phase-4/` (optional: MCP bridge), `exercises/phase-5/` (RAG math), `exercises/phase-6/` (graph runner).
+`exercises/phase-4/` (optional: MCP bridge), `exercises/phase-5/` (RAG math), `exercises/phase-6/` (graph runner), `exercises/phase-7/` (optional: budget rules).
 Real FLUX images wait for credits or a free image source.
 Open items: Step 0.3 deferred by choice · OpenAI live comparison (tiktoken predicted 35 prompt_tokens;
 Gemini reported 26) waits for OpenAI credits.

@@ -291,3 +291,23 @@ Full lesson: `docs/lessons/phase-6.md` (from `docs/lessons/phase-6-build-notes.m
 - **Interview one-liner:** "My pipeline is a LangGraph graph with a vision Critic loop, checkpointed after every node so crashes resume without paying again, an approval interrupt before the one paid step, and an MLflow trace per run, which found three bugs no test caught."
 
 ---
+
+### 2026-10-24 — Phase 7: the CLI tool (`shortsmith`) ✅ Phase 7 complete
+Full lesson: `docs/lessons/phase-7.md` (from `docs/lessons/phase-7-build-notes.md`). Code: commit 04cfd7e.
+- **Concepts learned:**
+  - Anatomy of a command line: program, command, arguments (required, by position), options (named, with defaults), flags (on/off); `--help` is the documentation.
+  - Entry points: `[project.scripts] shortsmith = "shortsmith.cli:main"` makes `.venv\Scripts\shortsmith.exe`.
+  - argparse vs Click vs Typer: Typer reads the CLI from type hints and docstrings (like Pydantic schemas).
+  - Exit codes as an interface: 0 ok, 1 error, 2 usage, 3 paused for approval, 4 over budget, 130 interrupted.
+  - stdout for results, stderr for progress (the MCP rule again), so `--json` is clean.
+  - TTY detection, ANSI escape codes, how a spinner works (`\r` redraws), plain mode when piped, `NO_COLOR`.
+  - Settings order: flags > environment > `.env` > defaults; safe defaults (mock media, free tier, approval).
+  - Money guard rails: a per-run budget in list price that stops before the node that would go over, resumable; `--real` asks after an estimate or needs `--yes`.
+  - Commands that build on saved state (resume, rerun-scene through the manifest), and testing with `CliRunner`.
+- **Results ($0, 14 LLM calls, $0.0485 list price):** a full Uzbek run with live progress (761 s, 567 s of it the critic waiting in the free queue); rerun-scene remade only scene 2 with 0 calls; `--budget 0.01` stopped a run before the critic (exit 4) and `resume --budget 0.02` finished it with one new call; list/show/cost as tables, Markdown when piped, `--json` for scripts; `doctor` checks the setup without a network call or printing keys. 391 tests; optional exercise = 18 tests.
+- **Errors that were lessons:** a Pydantic `default_factory` that read a context variable also ran while parsing, so old ledger lines counted as a new run's spending; Typer 0.27 carries its own copy of Click, so `click` classes never match; a checkpoint can't tell running from crashed (fixed with a `.running` marker and a process id); PowerShell 5.1 re-encodes redirected output with the console code page (fixed with `-o FILE` and ASCII JSON; found only by testing in my real terminal); a fixed-clock test broke on a new day because the code read the real clock.
+- **My questions → short answers:** Phase 5 explained again end to end (trends, RAG, the Researcher, the experiment); MCP from processes, file descriptors and pipes up to JSON-RPC, with a by-hand client; run_id is a run folder's name, made once, used wherever code must say which video.
+- **Open items:** the writer's retry isn't in the budget estimate; a live y/N typed by a person not yet tried; `--real` never run; 1 hero clip max; YouTube's broader query drops the place name; slow start-up (~5–7 s).
+- **Interview one-liner:** "I wrapped the agent system in a Typer CLI with clean stdout/stderr separation, `--json` for scripts, meaningful exit codes, and a budget guard inside the graph that stops before the step that would overspend and resumes without repaying."
+
+---

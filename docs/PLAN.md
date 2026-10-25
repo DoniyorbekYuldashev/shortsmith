@@ -124,7 +124,10 @@ shortsmith/
 │   │   └── toy_graph.py  prompt_eval.py  context_eval.py
 │   ├── tracing.py          # MLflow setup + custom spans/metrics
 │   ├── mcp_server.py
-│   ├── cli.py              # Typer
+│   ├── cli.py              # Typer: commands, flags, exit codes, errors -> message + next step
+│   ├── console.py  views.py   # Rich or plain output per stream; tables for make/show/cost
+│   ├── runs.py  costs.py      # runs and the ledger as data (RunSummary, RunDetail, CostReport)
+│   ├── budget.py  rerun.py    # --budget estimates and stop; rerun-scene through the producer's manifest
 │   └── api.py              # FastAPI + SSE
 ├── web/                    # Next.js app
 ├── runs/                   # one folder per run: state.json, scenes/, final.mp4 (gitignored)
@@ -179,7 +182,8 @@ class RunState(BaseModel):
 ```
 *As built (Phase 6, `agents/state.py`):* `RunState` also holds `plan`, `hero`, `revisions` and `made`;
 `critic_rounds`, `revisions` and `made` are appended (`operator.add`), and `tokens_used`/`cost_usd` are derived
-from a per-node `usage` map summed by a custom reducer.
+from a per-node `usage` map summed by a custom reducer. Phase 7 added `budget_usd`, `hero_clips` and `media`, saved with
+the run so a resume keeps them.
 
 ---
 
@@ -270,6 +274,10 @@ Each phase has: **Goal → Steps → Concepts to learn → Check questions → D
 - 7.2 Flags: `--lang`, `--hero-clips N`, `--budget`, `--mock`.
 - 7.3 Rich progress output (spinners, cost per step).
 **Done when:** a person can use the tool without reading the code.
+*As built (2026-10-24, commit 04cfd7e):* `shortsmith make | resume | rerun-scene | list | show | cost | doctor | mcp`;
+`--budget` counts list price and stops before the node that would go over (resumable, exit 4); `--hero-clips` is 0 or 1;
+`--mock/--real` (real asks after an estimate, or needs `--yes`); `--json` and `-o FILE` on list/show/cost; exit codes
+0 ok, 1 error, 2 usage, 3 paused, 4 over budget, 130 interrupted.
 
 ### Phase 8 — Web app (JavaScript)
 - 8.1 `api.py`: FastAPI endpoints to start a run + an SSE stream of progress events.
