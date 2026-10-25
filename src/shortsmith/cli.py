@@ -112,6 +112,7 @@ def explain(e: BaseException, run_id: str | None) -> tuple[str, str, ExitCode]:
     from pydantic import ValidationError
 
     from shortsmith import llm, runs
+    from shortsmith.research import stores
 
     resume = f"shortsmith resume {run_id}" if run_id else ""
     saved = f"the run is saved after its last finished node: {resume}" if run_id else ""
@@ -119,6 +120,8 @@ def explain(e: BaseException, run_id: str | None) -> tuple[str, str, ExitCode]:
     match e:
         case Problem():
             return str(e), e.hint, e.code
+        case stores.StoreUnavailable():  # never a quiet switch to another store: say what's wrong and what to do
+            return e.message, f"{e.hint}; then {resume}" if resume else e.hint, ExitCode.ERROR
         case KeyboardInterrupt():
             return "interrupted", saved, ExitCode.INTERRUPTED
         case runs.RunNotFound():
@@ -184,8 +187,9 @@ def _not_blank(value: str) -> str:
     return value.strip()
 
 
-def preflight(real: bool) -> None:
-    """Fail before anything is spent: ffmpeg, the LLM key, and fal's key for real media."""
+def preflight(real: bool, research: bool = False) -> None:
+    """Fail before anything is spent: ffmpeg, the LLM key, fal's key for real media, and the vector
+    store when the run will research (a database that is down fails here, before a run folder exists)."""
     from shortsmith import llm
 
     missing = [tool for tool in ("ffmpeg", "ffprobe") if shutil.which(tool) is None]
@@ -199,6 +203,10 @@ def preflight(real: bool) -> None:
                       "put it in .env in the folder you run from (see .env.example); `shortsmith doctor` checks")
     if real and not os.environ.get("FAL_KEY"):
         raise Problem("FAL_KEY is not set, and --real makes images on fal.ai", "add it to .env, or use --mock")
+    if research:
+        from shortsmith.research import rag
+
+        rag.default_kb()  # opens the selected store (cached: the researcher node reuses it); StoreUnavailable if down
 
 
 def set_media(real: bool) -> None:
@@ -354,7 +362,7 @@ def make(
     with failures(session):
         from shortsmith import budget, ledger
 
-        preflight(real)
+        preflight(real, research=research or brand is not None)
         if critic_model:
             from shortsmith.agents import critic
 
@@ -469,7 +477,7 @@ def resume(
                 updates["budget_usd"] = budget_usd
             if real != (s.media == "real"):
                 updates["media"] = "real" if real else "mock"
-            preflight(real)
+            preflight(real, research="researcher" in budget.nodes_left(s))
             if real:
                 images_left = len(producer.pending(s.folder, s.plan, s.hero).images) if s.plan else 6
                 est = budget.run_estimate(False, 0 if s.hero is None or s.hero.approved is False else 1,
@@ -672,10 +680,38 @@ KEYS = {  # what each key is for; doctor says only whether it is set, never any 
 }
 
 
+def store_rows() -> list[tuple[str, bool | None, str]]:
+    """doctor's lines about the RAG vector store. The database is a FAIL when it is the selected store and
+    can't be reached: --research and retrieve_hooks would fail, and nothing falls back to another store."""
+    from shortsmith import llm
+    from shortsmith.research import rag, stores
+
+    try:
+        s = stores.status(rag.collection_name(llm.provider().embedding_model, llm.EMBED_DIMENSIONS))
+    except ValueError as e:  # VECTOR_STORE or LLM_PROVIDER has a value we don't know
+        return [("vector store", False, str(e))]
+    chosen = f"VECTOR_STORE={os.environ['VECTOR_STORE']}" if os.environ.get("VECTOR_STORE") else "the default"
+    if s.backend == "chroma":
+        where = "exists" if stores.CHROMA_DIR.exists() else "not created yet: the first --research run makes it"
+        return [("vector store", None, f"chroma ({chosen}): collection {s.table} in {stores.CHROMA_DIR}/ ({where})")]
+    rows: list[tuple[str, bool | None, str]] = [
+        ("vector store", None, f"pgvector ({chosen}): table {s.table} at {s.url or 'DATABASE_URL not set'}"),
+        ("Docker", s.docker_running or None, s.docker or ""),
+    ]
+    if not s.reachable:
+        return rows + [("database", False, f"{s.error}; next: {s.hint}")]
+    if s.rows is None:
+        size = "table not created yet: the first --research run makes it and embeds the chunks (python -m shortsmith.research.migrate copies Chroma's instead, 0 requests)"
+    else:
+        size = f"{s.rows} rows in {s.table}"
+    return rows + [("database", True, f"PostgreSQL {s.postgres}, pgvector {s.pgvector or 'not created yet'}; {size}; {s.seconds} s")]
+
+
 @app.command(rich_help_panel="Setup", short_help="Check ffmpeg, keys (set or not), media mode and stores.")
 def doctor(ctx: typer.Context) -> None:
     """Check the setup without spending anything: ffmpeg, which keys are set (never their values),
-    the LLM provider, mock or real media, and the stores (ledger, checkpoints, MLflow)."""
+    the LLM provider, mock or real media, and the stores (ledger, checkpoints, MLflow, the vector
+    store: Docker, the database, pgvector, its rows; the password is never shown)."""
     session: Session = ctx.obj
     with failures(session):
         import importlib.util
@@ -721,6 +757,7 @@ def doctor(ctx: typer.Context) -> None:
         has_mlflow = importlib.util.find_spec("mlflow") is not None
         rows.append(("MLflow", has_mlflow, f"{'installed' if has_mlflow else 'not installed (runs go untraced)'}; "
                      f"{runs.MLFLOW_DB}: {f'{runs.MLFLOW_DB.stat().st_size / 1e6:.1f} MB' if runs.MLFLOW_DB.exists() else 'not created yet'}"))
+        rows += store_rows()
 
         ui = session.ui
         table = ui.table("check", "", "detail")

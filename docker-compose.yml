@@ -1,0 +1,31 @@
+# Postgres with the pgvector extension: the RAG store (research/stores.py), and later the web app's
+# users and runs (Phases 8-9). Start Docker Desktop, then, from the repo root:
+#     docker compose up -d db      start (or create) the database in the background
+#     docker compose ps            is it running and healthy?
+#     docker compose stop db       stop it; the data stays in the volume
+# Never `docker compose down -v`: -v deletes the volume, i.e. the data.
+# Compose reads the ${...} values from .env next to this file (SHORTSMITH_DB_PASSWORD is required).
+
+name: shortsmith
+
+services:
+  db:
+    image: pgvector/pgvector:0.8.7-pg17  # pgvector 0.8.7 on Postgres 17 (Debian bookworm); an exact tag, never latest
+    environment:
+      POSTGRES_USER: ${SHORTSMITH_DB_USER:-shortsmith}
+      POSTGRES_DB: ${SHORTSMITH_DB_NAME:-shortsmith}
+      POSTGRES_PASSWORD: ${SHORTSMITH_DB_PASSWORD:?set SHORTSMITH_DB_PASSWORD in .env (see .env.example)}
+    ports:
+      - "127.0.0.1:5433:5432"  # localhost only; 5433 because a Windows Postgres may own 5432
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:  # "healthy" = the server accepts connections to our database, not just "the process started"
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped  # back after a Docker Desktop restart, unless you stopped it yourself
+
+volumes:
+  pgdata:  # named volume shortsmith_pgdata: survives `stop`, `down` and image upgrades

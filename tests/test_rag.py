@@ -1,8 +1,9 @@
-"""research/rag.py: chunking, the Chroma index and retrieval, with fake embeddings.
+"""research/rag.py: chunking, the index and retrieval, with fake embeddings.
 
 The fake embedding is a bag of words hashed into 64 numbers: texts that share words point in
 similar directions, so retrieval behaves like the real thing, offline and deterministic.
-Chroma runs for real, in a temporary folder.
+The index tests run against every store (conftest.py's store_factory): an in-memory fake, Chroma
+for real in a temporary folder, and pgvector in a throwaway table when the database is up.
 """
 
 import hashlib
@@ -11,7 +12,7 @@ import math
 import pytest
 
 from shortsmith import llm
-from shortsmith.research import rag
+from shortsmith.research import rag, stores
 
 DIMS = 64
 
@@ -96,8 +97,12 @@ def data(tmp_path):
 
 
 @pytest.fixture
-def kb(data, tmp_path):
-    return rag.KnowledgeBase(data_dir=data, store=tmp_path / "chroma", model="fake", dimensions=DIMS, embed=FakeEmbed())
+def kb(data, store_factory):
+    return rag.KnowledgeBase(data_dir=data, store=store_factory.open("kb"), model="fake", dimensions=DIMS, embed=FakeEmbed())
+
+
+def stored(kb: rag.KnowledgeBase) -> dict[str, stores.Record]:
+    return {r.id: r for r in kb.store.records()}
 
 
 # --- chunking -----------------------------------------------------------------------------------
@@ -170,12 +175,24 @@ def test_every_chunk_fits_comfortably_in_one_embedding_request():
 # --- the index ------------------------------------------------------------------------------------
 
 
-def test_the_first_sync_embeds_every_chunk_in_one_request(kb):
+def test_the_first_sync_embeds_every_chunk_in_one_request(kb, data):
     report = kb.sync()
     assert (report.chunks, report.added, report.changed, report.removed, report.unchanged) == (5, 5, 0, 0, 0)
     assert len(kb.embed.calls) == 1 and len(kb.embed.calls[0]) == 5
-    assert kb.collection.count() == 5
-    assert kb.collection.metadata["embedding_model"] == "fake"
+    assert kb.store.count() == 5 and (report.store, report.collection) == (kb.store.backend, kb.store.name)
+    record = stored(kb)["brands/teahouse/voice-and-tone"]  # everything retrieval returns is stored with the vector
+    assert (record.kind, record.brand, record.group, record.source) == ("brand", "teahouse", "Teahouse Test (fictional)",
+                                                                        "brands/teahouse.md")
+    chunk = next(c for c in rag.load_chunks(data) if c.id == record.id)
+    assert record.hash == rag.fingerprint(rag.document_text(chunk, "fake")) and len(record.embedding) == DIMS
+    assert record.embedding == pytest.approx(bag_of_words(rag.document_text(chunk, "fake")))  # the vector, as embedded
+    assert stored(kb)["curiosity/open-loop"].brand is None
+
+
+def test_the_chroma_collection_records_its_model(data, tmp_path):
+    store = stores.ChromaStore("kb-fake-64", DIMS, "fake", tmp_path / "chroma")
+    rag.KnowledgeBase(data_dir=data, store=store, model="fake", dimensions=DIMS, embed=FakeEmbed()).sync()
+    assert store.collection.metadata == {"embedding_model": "fake", "dimensions": DIMS} and store.name == "kb-fake-64"
 
 
 def test_a_second_sync_with_no_edits_embeds_nothing(kb):
@@ -183,7 +200,7 @@ def test_a_second_sync_with_no_edits_embeds_nothing(kb):
     report = kb.sync()
     assert (report.added, report.changed, report.unchanged, report.embedded_tokens) == (0, 0, 5, 0)
     assert len(kb.embed.calls) == 1  # still only the first sync's request
-    assert kb.collection.count() == 5  # no duplicates
+    assert kb.store.count() == 5  # no duplicates
 
 
 def test_an_edited_section_is_re_embedded_and_a_deleted_one_removed(kb, data):
@@ -194,14 +211,13 @@ def test_an_edited_section_is_re_embedded_and_a_deleted_one_removed(kb, data):
     report = kb.sync()
     assert (report.added, report.changed, report.removed, report.unchanged) == (0, 1, 1, 3)
     assert kb.embed.calls[-1] == [rag.document_text(next(c for c in rag.load_chunks(data) if c.id == "curiosity/open-loop"), "fake")]
-    assert "place/hidden-gem" not in kb.collection.get()["ids"]
-    stored = kb.collection.get(ids=["curiosity/open-loop"])["documents"][0]
-    assert "curiosity is a craving" in stored
+    assert "place/hidden-gem" not in kb.store.hashes() and kb.store.count() == 4
+    assert "curiosity is a craving" in stored(kb)["curiosity/open-loop"].text  # replaced in place, not added
 
 
-def test_the_index_survives_a_restart(kb, data, tmp_path):
+def test_the_index_survives_a_restart(kb, data, store_factory):
     kb.sync()
-    reopened = rag.KnowledgeBase(data_dir=data, store=tmp_path / "chroma", model="fake", dimensions=DIMS, embed=FakeEmbed())
+    reopened = rag.KnowledgeBase(data_dir=data, store=store_factory.open("kb"), model="fake", dimensions=DIMS, embed=FakeEmbed())
     assert reopened.sync().unchanged == 5 and reopened.embed.calls == []
 
 
@@ -225,11 +241,11 @@ def test_the_same_text_has_similarity_one(kb, data):
     assert best.id == "place/hidden-gem" and best.similarity == pytest.approx(1.0, abs=1e-4)
 
 
-def test_cosine_ignores_how_long_the_vectors_are(data, tmp_path):
+def test_cosine_ignores_how_long_the_vectors_are(data, store_factory):
     """Cosine compares directions. Doubling some vectors' length (as an unnormalised model might)
     changes no similarity; with L2 (straight-line) distance it would reorder the results."""
-    plain = rag.KnowledgeBase(data_dir=data, store=tmp_path / "a", model="fake", dimensions=DIMS, embed=FakeEmbed())
-    stretched = rag.KnowledgeBase(data_dir=data, store=tmp_path / "b", model="fake", dimensions=DIMS,
+    plain = rag.KnowledgeBase(data_dir=data, store=store_factory.open("a"), model="fake", dimensions=DIMS, embed=FakeEmbed())
+    stretched = rag.KnowledgeBase(data_dir=data, store=store_factory.open("b"), model="fake", dimensions=DIMS,
                                   embed=FakeEmbed(scale=lambda text: 3.0 if "melon" in text else 1.0))
     for kb in (plain, stretched):
         kb.sync()
@@ -264,11 +280,40 @@ def test_a_query_costs_one_embedding_request(kb):
     assert kb.embed.calls[-1] == ["melon"]  # the fake model has no query format: plain text
 
 
-def test_cosine_similarity_by_hand_matches_chroma(kb, data):
-    """Chroma's cosine distance is 1 - cos(angle): checked against the formula itself."""
+def test_cosine_similarity_by_hand_matches_the_store(kb, data):
+    """Every store's cosine distance is 1 - cos(angle): checked against the formula itself."""
     kb.sync()
     chunk = next(c for c in rag.load_chunks(data) if c.id == "curiosity/open-loop")
     a, b = bag_of_words("an open question about a strange fact"), bag_of_words(rag.document_text(chunk, "fake"))
     by_hand = sum(x * y for x, y in zip(a, b)) / (math.hypot(*a) * math.hypot(*b))
     found = {r.id: r.similarity for r in kb.retrieve("an open question about a strange fact", k=3)}
     assert found["curiosity/open-loop"] == pytest.approx(by_hand, abs=1e-4)
+
+
+def test_nearest_takes_a_vector_and_makes_no_request(kb):
+    kb.sync()
+    calls = len(kb.embed.calls)
+    by_text = kb.retrieve("guess the price of this melon", k=2)
+    by_vector = kb.nearest(bag_of_words("guess the price of this melon"), k=2)
+    assert by_vector == by_text and len(kb.embed.calls) == calls + 1  # only retrieve() embedded
+
+
+def test_no_filter_mixes_hooks_and_brand_sections(kb):
+    kb.sync()
+    kinds = {r.kind for r in kb.retrieve("cozy guest teahouse warm polite open loop", k=5, kind=None)}
+    assert kinds == {"hook", "brand"}
+
+
+def test_the_default_store_is_the_selected_one_and_never_a_fallback(data, monkeypatch, tmp_path):
+    """VECTOR_STORE=pgvector (the default) without a database is an error with the next step;
+    nothing quietly opens Chroma instead."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("VECTOR_STORE", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    with pytest.raises(stores.StoreUnavailable, match="DATABASE_URL is not set") as e:
+        rag.KnowledgeBase(data_dir=data, model="fake", dimensions=DIMS, embed=FakeEmbed())
+    assert "docker compose up -d db" in e.value.hint and "VECTOR_STORE=chroma" in e.value.hint
+    assert not (tmp_path / "chroma").exists()  # no Chroma folder was made behind our back
+    monkeypatch.setenv("VECTOR_STORE", "chroma")
+    kb = rag.KnowledgeBase(data_dir=data, model="fake", dimensions=DIMS, embed=FakeEmbed())
+    assert kb.store.backend == "chroma" and kb.sync().added == 5 and (tmp_path / "chroma").exists()

@@ -265,9 +265,10 @@ def main(argv: list[str] | None = None) -> None:
     # is still there at exit is written after the SDK has put the channel back (Phase 4 build
     # notes, E2). Line buffering sends every printed line to fd 1 at once: to stderr.
     sys.stdout.reconfigure(line_buffering=True)  # type: ignore[union-attr]
-    log.info("shortsmith MCP server | root %s | images: %s | LLM provider: %s (key %s) | ffmpeg: %s%s",
+    log.info("shortsmith MCP server | root %s | images: %s | LLM provider: %s (key %s) | vector store: %s | ffmpeg: %s%s",
              Path.cwd(), "placeholders (MOCK_MEDIA)" if images.mock_media() else "FLUX, PAID",
              os.environ.get("LLM_PROVIDER", "openai"), "set" if os.environ.get(llm.provider().key_env) else "missing",
+             os.environ.get("VECTOR_STORE", "pgvector"),  # opened on the first retrieve_hooks call, not here
              shutil.which("ffmpeg") or "NOT FOUND on PATH: render_video will fail",
              f" | first call fails on purpose: {', '.join(args.fail_first)}" if args.fail_first else "")
     mcp.run("stdio")  # blocks; returns when the host closes our stdin

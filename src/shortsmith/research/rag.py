@@ -1,6 +1,6 @@
 """Retrieval: find the few pieces of the knowledge base that fit a topic (the R in RAG).
 
-    data/hooks/*.md --chunk--> sections --embed--> vectors --store--> Chroma (chroma/)
+    data/hooks/*.md --chunk--> sections --embed--> vectors --store--> pgvector (or Chroma): stores.py
     query ---------------------------embed--> vector --nearest by cosine--> top-k sections
 
 The knowledge base is ~70 hook patterns and 2 brand guidelines (data/hooks/). All of it in
@@ -12,9 +12,9 @@ or one part of a brand guideline). Every chunk is a whole idea, so a retrieved c
 starts or ends mid-thought.
 
 Vectors come from the provider's embedding model through llm.embed(), so every request is
-priced and in the ledger. Chroma only stores and searches them: it is never asked to embed
-(its default would download a local model). Distance is cosine: the angle between vectors,
-not their length, carries the meaning.
+priced and in the ledger. The store (Postgres + pgvector by default, Chroma with
+VECTOR_STORE=chroma; see stores.py) only stores and searches them: it never embeds. Distance is
+cosine: the angle between vectors, not their length, carries the meaning.
 
 Build or refresh the index, then try a query (from the repo root):
     uv run --env-file .env python -m shortsmith.research.rag "cozy cafe in Tashkent" -k 5
@@ -28,17 +28,15 @@ import time
 from collections.abc import Callable
 from functools import cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 from pydantic import BaseModel
 
 from shortsmith import llm
-
-if TYPE_CHECKING:  # chromadb takes ~2 s to import: loaded on first use, so the MCP server starts fast
-    from chromadb.api.models.Collection import Collection
+from shortsmith.research import stores  # light: psycopg and chromadb are imported only when a store opens
 
 DATA_DIR = Path("data/hooks")  # relative to the repo root, like runs/
-CHROMA_DIR = Path("chroma")  # gitignored: rebuilt from data/hooks/ whenever it's missing
+CHROMA_DIR = stores.CHROMA_DIR  # gitignored: rebuilt from data/hooks/ whenever it's missing
 DEFAULT_K = 5
 
 Kind = Literal["hook", "brand"]
@@ -76,7 +74,8 @@ class Retrieved(BaseModel):
 class IndexReport(BaseModel):
     """What one sync did. Re-running it with nothing changed embeds nothing."""
 
-    collection: str
+    store: str  # "pgvector" or "chroma"
+    collection: str  # the table or collection: one per embedding model and size
     chunks: int
     added: int
     changed: int
@@ -163,41 +162,30 @@ def collection_name(model: str, dimensions: int) -> str:
 
 
 class KnowledgeBase:
-    """One Chroma collection, kept in step with the files in data/hooks/."""
+    """One vector store's index (a table or collection), kept in step with the files in data/hooks/."""
 
     def __init__(
         self,
         data_dir: Path = DATA_DIR,
-        store: Path | None = CHROMA_DIR,  # None: in memory only (tests)
+        store: stores.VectorStore | None = None,  # None: the one VECTOR_STORE selects (pgvector by default)
         model: str | None = None,
         dimensions: int = llm.EMBED_DIMENSIONS,
         embed: Embed | None = None,
     ):
-        import chromadb
-        from chromadb.config import Settings
-
         self.data_dir = data_dir
         self.model = model or llm.provider().embedding_model
         self.dimensions = dimensions
         self.embed: Embed = embed or (lambda texts: llm.embed(texts, self.model, dimensions, step="rag"))
-        settings = Settings(anonymized_telemetry=False)
-        client = (chromadb.PersistentClient(path=str(store), settings=settings) if store
-                  else chromadb.EphemeralClient(settings=settings))
-        self.collection: Collection = client.get_or_create_collection(
-            collection_name(self.model, dimensions),
-            embedding_function=None,  # we pass vectors in; Chroma must never embed (or download a model)
-            configuration={"hnsw": {"space": "cosine"}},
-            metadata={"embedding_model": self.model, "dimensions": dimensions},
-        )
+        self.store: stores.VectorStore = (store if store is not None else
+                                          stores.open_store(collection_name(self.model, dimensions), dimensions, self.model))
 
     def sync(self) -> IndexReport:
-        """Make the collection match the files: embed new and changed chunks, delete removed
-        ones, leave the rest. Idempotent: a second run with no edits embeds nothing."""
+        """Make the store match the files: embed new and changed chunks, delete removed ones,
+        leave the rest. Idempotent: a second run with no edits embeds nothing."""
         start = time.perf_counter()
         chunks = load_chunks(self.data_dir)
         texts = {c.id: document_text(c, self.model) for c in chunks}
-        stored = self.collection.get(include=["metadatas"])
-        stored_hash = {i: (m or {}).get("hash") for i, m in zip(stored["ids"], stored["metadatas"] or [])}
+        stored_hash = self.store.hashes()
 
         todo = [c for c in chunks if stored_hash.get(c.id) != fingerprint(texts[c.id])]
         gone = sorted(set(stored_hash) - {c.id for c in chunks})
@@ -205,20 +193,16 @@ class KnowledgeBase:
         if todo:
             result = self.embed([texts[c.id] for c in todo])
             tokens, cost = result.prompt_tokens, result.cost_usd
-            self.collection.upsert(  # insert or replace by id: no duplicates, ever
-                ids=[c.id for c in todo],
-                embeddings=result.vectors,
-                documents=[c.text for c in todo],
-                metadatas=[{"kind": c.kind, "title": c.title, "group": c.group, "brand": c.brand or "",
-                            "source": c.source, "hash": fingerprint(texts[c.id])} for c in todo],
-            )
-        if gone:
-            self.collection.delete(ids=gone)
+            self.store.upsert([  # insert or replace by id: no duplicates, ever
+                stores.Record(**c.model_dump(), hash=fingerprint(texts[c.id]), embedding=vector)
+                for c, vector in zip(todo, result.vectors, strict=True)
+            ])
+        self.store.delete(gone)
         added = sum(c.id not in stored_hash for c in todo)
         return IndexReport(
-            collection=self.collection.name, chunks=len(chunks), added=added, changed=len(todo) - added,
-            removed=len(gone), unchanged=len(chunks) - len(todo), embedded_tokens=tokens, cost_usd=cost,
-            seconds=round(time.perf_counter() - start, 2),
+            store=self.store.backend, collection=self.store.name, chunks=len(chunks), added=added,
+            changed=len(todo) - added, removed=len(gone), unchanged=len(chunks) - len(todo), embedded_tokens=tokens,
+            cost_usd=cost, seconds=round(time.perf_counter() - start, 2),
         )
 
     def brands(self) -> list[str]:
@@ -228,17 +212,16 @@ class KnowledgeBase:
         """The k chunks closest to the query, most similar first. One embedding request."""
         if brand is not None and brand not in (known := self.brands()):
             raise ValueError(f"unknown brand {brand!r}; the brands are: {', '.join(known)}")
-        filters = [{"kind": kind}] if kind else []
-        if brand:
-            filters.append({"brand": brand})
-        where = filters[0] if len(filters) == 1 else ({"$and": filters} if filters else None)
         vector = self.embed([query_text(query, self.model)]).vectors[0]
-        found = self.collection.query(query_embeddings=[vector], n_results=k, where=where,
-                                      include=["documents", "metadatas", "distances"])
+        return self.nearest(vector, k, kind, brand)
+
+    def nearest(self, vector: list[float], k: int = DEFAULT_K, kind: Kind | None = "hook",
+                brand: str | None = None) -> list[Retrieved]:
+        """The k chunks closest to an already embedded query (no API call): the same for every store."""
         return [
-            Retrieved(id=i, kind=m["kind"], title=m["title"], group=m["group"], text=doc,
-                      similarity=round(1 - distance, 4))  # cosine distance = 1 - cosine similarity
-            for i, doc, m, distance in zip(found["ids"][0], found["documents"][0], found["metadatas"][0], found["distances"][0])
+            Retrieved(id=h.id, kind=h.kind, title=h.title, group=h.group, text=h.text,
+                      similarity=round(1 - h.distance, 4))  # cosine distance = 1 - cosine similarity
+            for h in self.store.query(vector, k, kind, brand)
         ]
 
 
@@ -279,7 +262,8 @@ def chunk_sizes(chunks: list[Chunk]) -> dict[str, dict[str, int]]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Sync the hooks knowledge base into Chroma, then retrieve the top k for a query.")
+    parser = argparse.ArgumentParser(description="Sync the hooks knowledge base into the vector store (VECTOR_STORE: "
+                                                 "pgvector or chroma), then retrieve the top k for a query.")
     parser.add_argument("query", nargs="?")
     parser.add_argument("-k", type=int, default=DEFAULT_K)
     parser.add_argument("--brand", help="search this brand's guideline sections instead of hook patterns")
@@ -287,7 +271,7 @@ def main() -> None:
 
     kb = default_kb()
     report = kb.sync()
-    print(f"index {report.collection}: {report.chunks} chunks | +{report.added} new, {report.changed} changed, "
+    print(f"index {report.store}:{report.collection}: {report.chunks} chunks | +{report.added} new, {report.changed} changed, "
           f"-{report.removed} removed, {report.unchanged} unchanged | embedded {report.embedded_tokens} tokens "
           f"(${report.cost_usd:.6f} list price) | {report.seconds} s")
     for kind, s in chunk_sizes(load_chunks(kb.data_dir)).items():
@@ -302,4 +286,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except stores.StoreUnavailable as e:  # one line and the next step, not a traceback
+        raise SystemExit(f"error: {e}") from None

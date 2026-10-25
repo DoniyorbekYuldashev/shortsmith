@@ -17,17 +17,25 @@ from shortsmith import cli, console, ledger, runs
 from shortsmith.agents import graph
 from shortsmith.agents.state import RunState
 from shortsmith.media import ffmpeg
+from shortsmith.research import rag, stores
 
 runner = CliRunner()
 ANSI = "\x1b["
+REAL_STATUS = stores.status
+HEALTHY = stores.StoreStatus(backend="pgvector", table="kb_gemini_embedding_2_768",
+                             url="postgresql://shortsmith:***@127.0.0.1:5433/shortsmith", docker="engine 29.4.0",
+                             docker_running=True, reachable=True, postgres="17.11", pgvector="0.8.7", rows=79)
 
 
 @pytest.fixture
 def env(world, monkeypatch):  # noqa: F811
-    """`world` plus what the CLI checks before spending: an LLM key, ffmpeg on PATH, ffprobe's answer."""
+    """`world` plus what the CLI checks before spending: an LLM key, ffmpeg on PATH, ffprobe's answer,
+    and a healthy vector store for doctor (no Docker or database in unit tests)."""
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     monkeypatch.delenv("SHORTSMITH_BUDGET", raising=False)
     monkeypatch.delenv("SHORTSMITH_LANG", raising=False)
+    monkeypatch.delenv("VECTOR_STORE", raising=False)
+    monkeypatch.setattr(stores, "status", lambda collection: HEALTHY)
     monkeypatch.setattr(cli.shutil, "which", lambda name: f"C:/fake/{name}.exe")
     monkeypatch.setattr(ffmpeg, "probe", lambda path: ffmpeg.VideoInfo(
         width=1080, height=1920, fps=30, frames=900, duration_s=30.0, size_bytes=3_100_000, video_codec="h264",
@@ -449,6 +457,98 @@ def test_doctor_says_whether_keys_are_set_and_never_their_values(env, monkeypatc
     monkeypatch.delenv("GEMINI_API_KEY")
     result = run("doctor")
     assert result.exit_code == 1 and "not ready: GEMINI_API_KEY" in result.stderr
+
+
+class FakeConnection:
+    """Answers the questions stores.status() asks a database."""
+
+    ANSWERS = {"SHOW server_version": "17.11", "extversion": "0.8.7", "to_regclass": "kb_gemini_embedding_2_768",
+               "count(*)": 79}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, query, params=None):
+        text = query if isinstance(query, str) else query.as_string(None)
+        value = next(v for key, v in self.ANSWERS.items() if key in text)
+        return type("Cursor", (), {"fetchone": lambda self: (value,)})()
+
+
+def doctor_rows(result) -> dict[str, str]:
+    return {line.split("|")[1].strip(): line for line in result.stdout.splitlines() if line.startswith("| ")}
+
+
+def test_doctor_shows_the_vector_store_and_never_the_database_password(env, monkeypatch):
+    monkeypatch.setattr(stores, "status", REAL_STATUS)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://shortsmith:pw-123-secret@127.0.0.1:5433/shortsmith")
+    monkeypatch.setattr(stores, "connect", lambda url, vectors=True: FakeConnection())
+    monkeypatch.setattr(stores, "docker_engine", lambda: (True, "engine 29.4.0"))
+    result = run("doctor")
+    assert result.exit_code == 0, result.output
+    assert "pw-123-secret" not in result.output
+    rows = doctor_rows(result)
+    assert "pgvector (the default): table kb_gemini_embedding_2_768 at postgresql://shortsmith:***@127.0.0.1:5433/shortsmith" \
+        in rows["vector store"]
+    assert "| ok " in rows["Docker"] and "engine 29.4.0" in rows["Docker"]
+    assert "| ok " in rows["database"] and "PostgreSQL 17.11, pgvector 0.8.7; 79 rows in kb_gemini_embedding_2_768" in rows["database"]
+
+
+def test_doctor_fails_when_the_selected_database_is_down(env, monkeypatch):
+    monkeypatch.setattr(stores, "status", REAL_STATUS)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://shortsmith:pw@127.0.0.1:5433/shortsmith")
+
+    def down(url, vectors=True):
+        raise stores.StoreUnavailable("can't connect to the pgvector database at 127.0.0.1:5433/shortsmith "
+                                      "(connection timeout expired)")
+
+    monkeypatch.setattr(stores, "connect", down)
+    monkeypatch.setattr(stores, "docker_engine", lambda: (False, "the engine is not running (start Docker Desktop)"))
+    result = run("doctor")
+    assert result.exit_code == 1 and "not ready: database" in result.stderr
+    rows, text = doctor_rows(result), " ".join(result.stdout.split())
+    assert "| FAIL " in rows["database"] and "can't connect to the pgvector database" in rows["database"]
+    assert "docker compose up -d db" in text and "VECTOR_STORE=chroma" in text
+    assert "| -  " in rows["Docker"] and "start Docker Desktop" in rows["Docker"]  # information: a database can live elsewhere
+
+
+def test_doctor_with_chroma_selected_needs_no_database(env, monkeypatch):
+    monkeypatch.setattr(stores, "status", REAL_STATUS)
+    monkeypatch.setenv("VECTOR_STORE", "chroma")
+    monkeypatch.setattr(stores, "connect", lambda *a, **k: pytest.fail("connected to a database"))
+    result = run("doctor")
+    assert result.exit_code == 0, result.output
+    rows = doctor_rows(result)
+    assert "chroma (VECTOR_STORE=chroma): collection kb-gemini-embedding-2-768" in rows["vector store"]
+    assert "database" not in rows and "Docker" not in rows
+
+
+def test_doctor_names_an_unknown_vector_store(env, monkeypatch):
+    monkeypatch.setattr(stores, "status", REAL_STATUS)
+    monkeypatch.setenv("VECTOR_STORE", "pinecone")
+    result = run("doctor")
+    assert result.exit_code == 1 and "| FAIL " in doctor_rows(result)["vector store"]
+    assert "VECTOR_STORE='pinecone'; it must be one of: pgvector, chroma" in result.stdout
+
+
+def test_research_with_the_database_down_stops_before_any_run_or_call(env, monkeypatch):
+    """No quiet fallback to Chroma: one error, the next step, exit 1, and nothing made or spent."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    rag.default_kb.cache_clear()
+    result = run("make", "coffee shop in Tashkent", "--research", "--approve", "yes", "--no-trace")
+    assert result.exit_code == 1, result.output
+    assert "error: VECTOR_STORE=pgvector, but DATABASE_URL is not set" in result.stderr
+    assert "docker compose up -d db" in result.stderr and "VECTOR_STORE=chroma" in result.stderr
+    assert runs.run_folders() == [] and env.llm.calls == {} and ledger.entries(ledger.DEFAULT_PATH) == []
+    assert not Path("chroma").exists()
+
+
+def test_a_store_lost_mid_run_says_how_to_go_on():
+    message, hint, code = cli.explain(stores.StoreUnavailable("lost the connection to the pgvector database"), "2026-10-25_101500")
+    assert message == "lost the connection to the pgvector database" and code == cli.ExitCode.ERROR
+    assert hint == f"{stores.NEXT_STEP}; then shortsmith resume 2026-10-25_101500"
 
 
 def test_no_colour_codes_even_with_no_color_and_plain(env, monkeypatch):

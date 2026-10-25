@@ -17,7 +17,9 @@ dependencies = [
     "mcp[cli]>=2.3.0",
     "mlflow>=3.17.2",
     "openai>=3.33.0",
+    "pgvector>=0.5.1",
     "pillow>=13.0.0",
+    "psycopg[binary]>=3.3.6",
     "pydantic>=2.14.1",
     "python-dotenv>=1.2.4",
     "rich>=15.0.0",
@@ -35,6 +37,9 @@ build-backend = "uv_build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]  # exercises/ hold unfinished copies: run them with `uv run pytest exercises/phase-2`
+markers = [
+    "pgvector: integration tests against the real Postgres + pgvector; they run when DATABASE_URL is set and the database answers (`uv run --env-file .env pytest`), otherwise they are skipped",
+]
 
 [dependency-groups]
 dev = [

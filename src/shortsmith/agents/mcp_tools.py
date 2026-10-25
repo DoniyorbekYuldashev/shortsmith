@@ -31,7 +31,8 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 # stdio_client starts the server with only a few "safe" variables of ours (PATH, APPDATA, ...),
 # not the whole environment. These are the ones the server needs, passed on by name.
-PASS_ENV = ("MOCK_MEDIA", "LLM_PROVIDER", "GEMINI_API_KEY", "OPENAI_API_KEY", "FAL_KEY")
+PASS_ENV = ("MOCK_MEDIA", "LLM_PROVIDER", "GEMINI_API_KEY", "OPENAI_API_KEY", "FAL_KEY",
+            "VECTOR_STORE", "DATABASE_URL")  # the RAG store, for retrieve_hooks
 
 
 def server_params(root: Path = REPO_ROOT, fail_first: Iterable[str] = ()) -> StdioServerParameters:
