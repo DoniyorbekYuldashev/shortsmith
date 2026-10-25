@@ -66,7 +66,7 @@ Researcher   Writer    Director     Producer      Editor     Critic
 |---|---|---|
 | LLM | Gemini free tier (`gemini-3.5-flash-lite`, `gemini-3.8-flash`) through the OpenAI-compatible endpoint while building; OpenAI `gpt-4.1-mini` kept as a switch (`LLM_PROVIDER`). The Critic judges with `gemini-3.8-flash` (fallback `gemini-3.6-flash` via `SHORTSMITH_CRITIC_MODEL`); each free Flash model allows only 20 requests a day | ~$0 |
 | Embeddings | Gemini `gemini-embedding-2` at 768 dimensions (free tier; OpenAI's model stays behind `LLM_PROVIDER=openai`) | $0 on the free tier |
-| Vector DB | Chroma (local) | free |
+| Vector DB | Postgres 17 + pgvector 0.8.7 in Docker (`pgvector/pgvector:0.8.7-pg17`, 127.0.0.1:5433), HNSW cosine, iterative scans on; Chroma kept behind `VECTOR_STORE=chroma` | free |
 | Images | fal.ai FLUX schnell (~$0.003/image) | ~$0.02 per video |
 | Hero clip (1 per video) | fal.ai image-to-video: Wan 2.5 480p / Veo 3.1 Lite from ~$0.05/s, Kling ~$0.07–0.11/s, premium models $0.30–0.75/s (checked 2026-10-21; verify the live price first) | ~$0.25–0.60 per 5-s clip |
 | Voice | `edge-tts` (free; Uzbek voices `uz-UZ-MadinaNeural`, `uz-UZ-SardorNeural`) | free |
@@ -99,6 +99,7 @@ shortsmith/
 │   ├── PLAN.md
 │   └── LEARNING_LOG.md
 ├── pyproject.toml
+├── docker-compose.yml      # Postgres + pgvector for the knowledge base (127.0.0.1:5433)
 ├── .env.example            # OPENAI_API_KEY, FAL_KEY, YOUTUBE_API_KEY, TELEGRAM_*, MOCK_MEDIA
 ├── data/
 │   └── hooks/              # seed library of viral hooks & brand guidelines (markdown/json)
@@ -114,7 +115,9 @@ shortsmith/
 │   │   └── ffmpeg.py       # ken burns, concat, subtitles, music
 │   ├── research/
 │   │   ├── youtube.py
-│   │   └── rag.py          # ingest + retrieve (Chroma)
+│   │   ├── rag.py          # chunk, sync, retrieve (through stores.py: pgvector by default)
+│   │   ├── stores.py       # VectorStore interface: PgVectorStore, ChromaStore
+│   │   └── migrate.py      # copy an index between stores (no re-embedding)
 │   ├── agents/
 │   │   ├── loop.py  tools.py  mcp_tools.py   # hand-built tool-calling loop, tool registry, MCP client
 │   │   ├── researcher.py  writer.py  director.py

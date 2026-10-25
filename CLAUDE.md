@@ -89,6 +89,14 @@ chat interrupted my flow, so each phase now runs like this:
   `[tool.uv] constraint-dependencies` pins versions that load. Never change the security setting.
 - The owner's terminal is Windows PowerShell 5.1 (console code page IBM437): `>` and `|` re-encode a program's output,
   so Uzbek text gets garbled. Use `-o FILE` or `--json` (ASCII) on list/show/cost, or `cmd /c "... > file"`.
+- RAG lives in pgvector (default `VECTOR_STORE=pgvector`, no fallback): before `--research` or `retrieve_hooks`, start
+  Docker Desktop, then `docker compose up -d db` (repo root); stop with `docker compose stop db`. **Never `docker compose
+  down -v`** (deletes the database volume). Ours is on 127.0.0.1:5433; the Windows service `postgresql-x64-16` on 5432
+  belongs to Yukdosh: leave it alone. `.env` holds `SHORTSMITH_DB_PASSWORD` and `DATABASE_URL`: never print them, and
+  don't run `docker compose config` / `docker inspect` where output is shown (they print the password).
+- `uv run pytest` skips the 22 pgvector integration tests; `uv run --env-file .env pytest` runs them (throwaway tables).
+- Claude Desktop's MCP config needs `DATABASE_URL` in its `env` block, or start the server as `uv run shortsmith mcp`
+  (which loads `.env`); otherwise `retrieve_hooks` says "DATABASE_URL is not set".
 
 ## Current progress
 Update this line at the end of every step:
@@ -98,10 +106,14 @@ list / show / cost / doctor / mcp, `--budget` (list price, exit 4), guarded `--r
 the lesson commit, lesson `docs/lessons/phase-7.md`. 391 tests.
 Make a video now with `uv run shortsmith make "topic"` (the command loads `.env` itself; `python -m shortsmith.make`
 still works). `uv run shortsmith doctor` checks the setup without printing keys.
+pgvector step built 2026-10-25 (between Phases 7 and 8): the RAG knowledge base moved from Chroma to Postgres 17 +
+pgvector 0.8.7 in Docker (`docker-compose.yml`, `research/stores.py`, `research/migrate.py`), parity proven (hit@1 0.88,
+MRR 0.914); commit 347b4fe + the lesson commit, lesson `docs/lessons/pgvector.md`. 449 tests with the DB (427 + 22 skipped
+without it).
 Phase 6 (LangGraph + MLflow) done 2026-10-24. Phase 5 (research + RAG) done 2026-10-23. Owner still to do: the Claude Desktop test + README screenshot (phase-4
 lesson §11; config file is under `%LOCALAPPDATA%\Claude-Data\...`, opened via Settings → Developer).
 Exercises waiting (not done yet): `exercises/phase-2/` (Ken Burns), `exercises/phase-3/` (the agent loop),
-`exercises/phase-4/` (optional: MCP bridge), `exercises/phase-5/` (RAG math), `exercises/phase-6/` (graph runner), `exercises/phase-7/` (optional: budget rules).
+`exercises/phase-4/` (optional: MCP bridge), `exercises/phase-5/` (RAG math), `exercises/phase-6/` (graph runner), `exercises/phase-7/` (optional: budget rules), `exercises/pgvector/` (optional: SQL and the filter trap).
 Real FLUX images wait for credits or a free image source.
 Open items: Step 0.3 deferred by choice · OpenAI live comparison (tiktoken predicted 35 prompt_tokens;
 Gemini reported 26) waits for OpenAI credits.

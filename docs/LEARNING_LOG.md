@@ -311,3 +311,13 @@ Full lesson: `docs/lessons/phase-7.md` (from `docs/lessons/phase-7-build-notes.m
 - **Interview one-liner:** "I wrapped the agent system in a Typer CLI with clean stdout/stderr separation, `--json` for scripts, meaningful exit codes, and a budget guard inside the graph that stops before the step that would overspend and resumes without repaying."
 
 ---
+
+### 2026-10-25 — Side step: RAG from Chroma to pgvector ✅ built
+Full lesson: `docs/lessons/pgvector.md` (from `docs/lessons/pgvector-build-notes.md`). Code: commit 347b4fe.
+- **Why:** I compared vector stores for interviews (Chroma, FAISS, pgvector, Qdrant, Weaviate, Milvus, Pinecone, Elasticsearch, Redis, Neo4j) and chose pgvector, so Phase 8–9's users and runs can share one Postgres. Postgres runs in Docker, like on the Azure server.
+- **Concepts learned:** Postgres extensions and the `vector(n)` type; distance operators (`<=>` cosine, `<->` L2, `<#>` negative inner product); Docker image / container / volume / port mapping / compose / healthcheck, and why never `down -v`; connection strings, psycopg 3, parameterised SQL against injection; upsert with `ON CONFLICT`; HNSW vs IVFFlat in Postgres; reading `EXPLAIN ANALYZE`; the post-filtering trap and pgvector 0.8's iterative scans; the adapter pattern (a `VectorStore` interface); no silent fallback; migrating vectors without re-embedding. Also covered in chat: retrieval types (sparse/BM25, dense, hybrid with RRF, rerankers, ColBERT, query and index techniques, GraphRAG, agentic retrieval) and how MLflow works underneath.
+- **Results ($0):** 79 vectors copied bit-for-bit with 0 embedding calls; identical top-k and scores to Chroma (to 4 decimals) and the same eval (hit@1 0.88, MRR 0.914); at 79 rows the planner correctly prefers an exact sequential scan (< 1 ms); a selective brand filter through the index returned 0 or 3 of 5 rows until `hnsw.iterative_scan = strict_order`; on 20,000 rows the index was ~200× faster and filtered recall went 0.395 → 1.0. 449 tests with the database.
+- **Errors that were lessons:** pgvector-python returns its own `Vector` type; the MCP server needed `DATABASE_URL` passed explicitly (least-privilege env), and so does Claude Desktop; reconnect once after a database restart; a filter only bites when the wanted rows are far from the query; the build printed one byte of `.env` (a rule breach, owned).
+- **Interview one-liner:** "I migrated RAG from Chroma to pgvector behind a store interface, proved identical retrieval, read the planner's choice of an exact scan at small scale, and fixed the HNSW post-filtering trap with iterative scans before it could bite."
+
+---
