@@ -69,6 +69,13 @@ chat interrupted my flow, so each phase now runs like this:
   in `.env`, OpenAI-compatible endpoint, default model `gemini-3.5-flash-lite`; `gemini-3.8-flash` for
   quality-sensitive steps). Gemini key lives in AI Studio project `gen-lang-client-0252045076`, Free tier:
   never click "Set up billing". Limits are per-minute/per-day requests (see aistudio.google.com/rate-limit).
+- **Images (owner's decision, 2026-10-25): Nano Banana through fal.ai** (`fal-ai/nano-banana` = Google's original
+  Gemini image model, $0.0398/image, `aspect_ratio: "9:16"` supported), using the existing `FAL_KEY`; the owner adds ~$5 of fal
+  credits (~125 images, ~15-20 test videos). FLUX stays available as a setting. Mock placeholders stay the default; real
+  images only with `--real`. Approved spend for the first live check: 1 test image + 1 real test video, nothing more without
+  asking. Not chosen: Google directly (no free tier for image models: our key got `limit: 0`; prepay minimum $30,
+  non-refundable). Never enable billing on the free text project (every text call would become paid). Hero clips stay
+  mock/off unless the owner asks.
 - **Keep the OpenAI path intact** (SDK, `PROVIDERS["openai"]`, key `shortsmith-dev`, prices). The OpenAI org
   ("Personal", shared with the owner's production project Yukdosh) is at $0 since 2026-10-18
   (`429 credit_balance_exhausted`). Switch back later with `LLM_PROVIDER=openai` after adding credits.
@@ -95,17 +102,28 @@ chat interrupted my flow, so each phase now runs like this:
   belongs to Yukdosh: leave it alone. `.env` holds `SHORTSMITH_DB_PASSWORD` and `DATABASE_URL`: never print them, and
   don't run `docker compose config` / `docker inspect` where output is shown (they print the password).
 - `uv run pytest` skips the 22 pgvector integration tests; `uv run --env-file .env pytest` runs them (throwaway tables).
+- If `docker compose up -d db` says `Volume shortsmith_pgdata Created`, the database is new and empty (it happened once,
+  2026-10-25): restore the knowledge base with `uv run --env-file .env python -m shortsmith.research.migrate` (copies
+  from `chroma/`, 0 embedding calls). Keep `chroma/` for that reason.
+- Web app: mock media only whatever `MOCK_MEDIA` says (set per job); after changing an API model run `npm run types` in
+  `web/` (a Python test fails until then); never name an SSE event `open`, `error` or `message`; `.gitignore` uses `/runs/`
+  (repo root only) so `web/app/runs/` is tracked.
 - Claude Desktop's MCP config needs `DATABASE_URL` in its `env` block, or start the server as `uv run shortsmith mcp`
   (which loads `.env`); otherwise `retrieve_hooks` says "DATABASE_URL is not set".
 
 ## Current progress
 Update this line at the end of every step:
-**Current phase/step:** Phase 8 next (web app). Phase 7 built 2026-10-24: the `shortsmith` command
+**Current phase/step:** Phase 9 next (automation & deploy). Next build queued: images via Nano Banana on fal
+(see Gotchas; owner adds ~$5 on fal first, and is also weighing OpenAI $5 for images + free daily LLM tokens).
+Phase 7 built 2026-10-24: the `shortsmith` command
 (`cli.py`, `console.py`, `views.py`, `runs.py`, `costs.py`, `budget.py`, `rerun.py`): make / resume / rerun-scene /
 list / show / cost / doctor / mcp, `--budget` (list price, exit 4), guarded `--real`, `--json`; commit 04cfd7e (code) +
 the lesson commit, lesson `docs/lessons/phase-7.md`. 391 tests.
 Make a video now with `uv run shortsmith make "topic"` (the command loads `.env` itself; `python -m shortsmith.make`
 still works). `uv run shortsmith doctor` checks the setup without printing keys.
+Phase 8 built 2026-10-26: the web app, `uv run shortsmith serve` (API on 127.0.0.1:8010) + `npm run dev` in `web/`
+(page on 127.0.0.1:3000); FastAPI + SSE, one-run worker, events in `runs/<id>/events.jsonl`; commit 7f6f822 + the lesson
+commit, lesson `docs/lessons/phase-8.md`. 474 tests (452 + 22 pgvector skipped offline); web: build, typecheck, 9 tests.
 pgvector step built 2026-10-25 (between Phases 7 and 8): the RAG knowledge base moved from Chroma to Postgres 17 +
 pgvector 0.8.7 in Docker (`docker-compose.yml`, `research/stores.py`, `research/migrate.py`), parity proven (hit@1 0.88,
 MRR 0.914); commit 347b4fe + the lesson commit, lesson `docs/lessons/pgvector.md`. 449 tests with the DB (427 + 22 skipped
@@ -113,7 +131,7 @@ without it).
 Phase 6 (LangGraph + MLflow) done 2026-10-24. Phase 5 (research + RAG) done 2026-10-23. Owner still to do: the Claude Desktop test + README screenshot (phase-4
 lesson §11; config file is under `%LOCALAPPDATA%\Claude-Data\...`, opened via Settings → Developer).
 Exercises waiting (not done yet): `exercises/phase-2/` (Ken Burns), `exercises/phase-3/` (the agent loop),
-`exercises/phase-4/` (optional: MCP bridge), `exercises/phase-5/` (RAG math), `exercises/phase-6/` (graph runner), `exercises/phase-7/` (optional: budget rules), `exercises/pgvector/` (optional: SQL and the filter trap).
+`exercises/phase-4/` (optional: MCP bridge), `exercises/phase-5/` (RAG math), `exercises/phase-6/` (graph runner), `exercises/phase-7/` (optional: budget rules), `exercises/pgvector/` (optional: SQL and the filter trap), `exercises/phase-8/` (optional: SSE wire format and replay).
 Real FLUX images wait for credits or a free image source.
 Open items: Step 0.3 deferred by choice · OpenAI live comparison (tiktoken predicted 35 prompt_tokens;
 Gemini reported 26) waits for OpenAI credits.

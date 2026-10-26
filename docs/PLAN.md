@@ -131,8 +131,8 @@ shortsmith/
 │   ├── console.py  views.py   # Rich or plain output per stream; tables for make/show/cost
 │   ├── runs.py  costs.py      # runs and the ledger as data (RunSummary, RunDetail, CostReport)
 │   ├── budget.py  rerun.py    # --budget estimates and stop; rerun-scene through the producer's manifest
-│   └── api.py              # FastAPI + SSE
-├── web/                    # Next.js app
+│   ├── api.py  jobs.py  events.py   # FastAPI + SSE; the worker and its queue; the event models and log
+├── web/                    # Next.js app: app/ components/ lib/ (api-schema.d.ts generated from openapi.json)
 ├── runs/                   # one folder per run: state.json, scenes/, final.mp4 (gitignored)
 └── tests/
 ```
@@ -288,6 +288,9 @@ Each phase has: **Goal → Steps → Concepts to learn → Check questions → D
 - 8.3 Show tokens and cost per step in the UI.
 **Concepts:** SSE vs WebSockets, async jobs, React state, TypeScript basics.
 **Done when:** the full run is visible live in the browser.
+*As built (2026-10-26, commit 7f6f822):* `shortsmith serve` (FastAPI + SSE on 127.0.0.1:8010) + Next.js 16 in `web/`
+(127.0.0.1:3000); one run at a time behind a queue; events persisted per run (`runs/<id>/events.jsonl`) and replayed
+with `Last-Event-ID`; mock media only and local only; TypeScript types generated from the OpenAPI schema; plain CSS.
 
 ### Phase 9 — Automation & deploy
 - 9.1 A daily scheduled run: "trend of the day" → video → sent to a Telegram bot.
