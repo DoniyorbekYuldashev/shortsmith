@@ -87,3 +87,33 @@ console's code page and garble non-English text: use `-o FILE` (or `--json`, whi
 
 The Phase 2-6 module commands still work, e.g. `uv run python -m shortsmith.make "topic" --graph`, and
 `uv run python -m shortsmith.mcp_server` for Claude Desktop.
+
+## The web app (local)
+
+A Next.js page that shows a run live: the pipeline timeline, scene thumbnails as they are made, the
+hero-clip question as Yes/No buttons, critic rounds, tokens and list price per step, a budget stop with
+"resume with a bigger budget", and the final video. Two terminals, both started from the repo folder:
+
+```bash
+uv run shortsmith serve      # terminal 1: the API on http://127.0.0.1:8010 (OpenAPI docs at /docs)
+```
+
+```bash
+cd web
+npm install                  # terminal 2, the first time only (Node 20.9+)
+npm run dev                  # http://127.0.0.1:3000
+```
+
+- **Local only, mock only.** Both listen on 127.0.0.1; there is no login. Runs from the web always use the
+  free placeholder media, whatever `MOCK_MEDIA` says (`--real` stays a CLI-only, confirmed choice). LLM calls go
+  to the Gemini free tier as usual: the page shows list price and says that $0 is billed.
+- **One run at a time.** Runs wait in a queue (at most 5); a run paused at the hero-clip question doesn't hold
+  the queue. Research needs the database (`docker compose up -d db`); the home page says when it's down.
+- **Stopping the server** (Ctrl+C) during a run keeps everything up to the last finished step; the page shows
+  it as interrupted, with a Resume button. The CLI and the web share the same runs, ledger and checkpoints.
+- Ports: 8010 (API; `shortsmith serve --port N`) and 3000 (web). `NEXT_PUBLIC_API_URL` points the page at
+  another API address; `SHORTSMITH_WEB_ORIGINS` (comma-separated) changes which pages the API allows (CORS).
+
+The page's TypeScript types are generated from the API's OpenAPI schema; after changing an API model, run
+`npm run types` in `web/` (it rewrites `web/openapi.json` and `web/lib/api-schema.d.ts`; a test fails until you
+do). Checks: `npm run build`, `npm run typecheck`, `npm test` (the event reducer, with Node's own test runner).

@@ -72,7 +72,7 @@ def history(**costs: float) -> None:
 def test_help_shows_the_command_tree_exit_codes_and_settings_order(env):
     result = run("--help")
     assert result.exit_code == 0
-    for command in ("make", "resume", "rerun-scene", "list", "show", "cost", "doctor", "mcp"):
+    for command in ("make", "resume", "rerun-scene", "list", "show", "cost", "doctor", "serve", "mcp"):
         assert command in result.stdout
     assert "Exit codes: 0 ok, 1 error, 2 usage, 3 paused for an approval, 4 over budget" in " ".join(result.stdout.split())
     assert "flags > environment variables > .env in the current folder > defaults" in " ".join(result.stdout.split())
@@ -84,7 +84,7 @@ def test_help_shows_the_command_tree_exit_codes_and_settings_order(env):
     ("resume", ["--approve", "--budget", "--mock", "--real", "--yes"]),
     ("rerun-scene", ["--prompt", "--narration", "--image", "--voice", "--approve", "--real"]),
     ("list", ["--limit", "--json"]), ("show", ["--json"]), ("cost", ["--days", "--run", "--json"]),
-    ("doctor", []), ("mcp", ["--root"]),
+    ("doctor", []), ("serve", ["--port", "--no-trace"]), ("mcp", ["--root"]),
 ])
 def test_every_command_explains_itself(env, command, options):
     result = run(command, "--help")

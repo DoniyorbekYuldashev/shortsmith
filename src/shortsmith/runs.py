@@ -37,7 +37,8 @@ from shortsmith.rerun import RerunRecord, load_records
 RUNS = Path("runs")
 CHECKPOINTS = Path("checkpoints/graph.sqlite")  # = graph.CHECKPOINTS (not imported: LangGraph only when needed)
 MLFLOW_DB = Path("mlflow.db")
-RUN_FILES = ("script.json", "options.json", "research.json", "media.json")  # any of these = a run folder
+# Any of these = a run folder. job.json: a run the web API queued (Phase 8), before its first checkpoint.
+RUN_FILES = ("script.json", "options.json", "research.json", "media.json", "job.json")
 
 # Ledger steps -> the graph node that makes them ("agent": media tools record their own lines under it).
 STEP_NODE = {"researcher": "researcher", "rag": "researcher", "writer": "writer", "writer-pick": "writer",
@@ -52,7 +53,8 @@ class RunNotFound(LookupError):
 
 
 class RunStatus(BaseModel):
-    kind: Literal["finished", "running", "paused", "over_budget", "crashed", "no_checkpoint"]
+    # "queued": only the web API says it (its worker hasn't started the run yet); the CLI never does
+    kind: Literal["finished", "running", "queued", "paused", "over_budget", "crashed", "no_checkpoint"]
     node: str | None = None  # where the run stands: the node it continues with
     detail: str = ""  # the approval question, the budget numbers, or the error
 
@@ -64,6 +66,8 @@ class RunStatus(BaseModel):
                 return "finished"
             case "running":
                 return f"running ({self.node})"
+            case "queued":
+                return "queued"
             case "paused":
                 return "paused at approval"
             case "over_budget":

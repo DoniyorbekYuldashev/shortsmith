@@ -15,7 +15,6 @@ Settings, highest first: flags > environment variables > .env in the current fol
 Exit codes: see ExitCode.
 """
 
-import math
 import os
 import shutil
 import subprocess
@@ -147,12 +146,18 @@ def explain(e: BaseException, run_id: str | None) -> tuple[str, str, ExitCode]:
         case FileNotFoundError() if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
             return "ffmpeg or ffprobe is not on PATH", "install ffmpeg, open a new terminal, then `shortsmith doctor`", ExitCode.ERROR
         case subprocess.CalledProcessError():
-            notes = " ".join(getattr(e, "__notes__", []))
-            return f"{Path(str(e.cmd[0])).name} failed with exit code {e.returncode}. {notes[-300:]}", saved or debug, ExitCode.ERROR
+            return f"{Path(str(e.cmd[0])).name} failed with exit code {e.returncode}. {short_notes(e)}", saved or debug, ExitCode.ERROR
         case ValueError() | FileNotFoundError() | LookupError():
             return str(e), saved or debug, ExitCode.ERROR
         case _:
             return f"{type(e).__name__}: {e}", f"{saved + '; ' if saved else ''}{debug}", ExitCode.ERROR
+
+
+def short_notes(e: BaseException, keep: int = 300) -> str:
+    """A failed tool's own words, shortened from the MIDDLE: ffmpeg prints the cause first and its
+    "Task finished ... Terminating thread" lines last, so keeping only the end hid the cause (Phase 8, E-ffmpeg)."""
+    notes = " ".join(getattr(e, "__notes__", []))
+    return notes if len(notes) <= keep else f"{notes[: keep * 2 // 3]} [...] {notes[-keep // 3:]}"
 
 
 @contextmanager
@@ -263,14 +268,6 @@ def main_options(
 # --- make / resume ------------------------------------------------------------------------------------------
 
 
-def _suggest_budget(s: Any, history: list) -> float:
-    """Spent so far + what the rest would cost, rounded up to a whole cent: a budget that would finish."""
-    from shortsmith import budget
-
-    need = budget.spent(s.run_id, history) + sum(budget.llm_estimate(n, history).usd for n in budget.nodes_left(s))
-    return max(0.01, math.ceil(need * 100) / 100)
-
-
 def run_graph(session: Session, run_id: str, payload: Any, answer: Answer | None, trace: bool) -> ExitCode:
     """Drive the graph with progress on stderr, then print the outcome on stdout. Returns the exit code."""
     from shortsmith import budget, ledger, runs, tracing
@@ -313,7 +310,7 @@ def run_graph(session: Session, run_id: str, payload: Any, answer: Answer | None
         views.kv(ui, "stopped", Text(f"over budget before {stopped.node} after {seconds:.0f} s", style="bold yellow"))
         views.kv(ui, "", f"spent {usd(stopped.spent)} + {stopped.node} ~{usd(stopped.estimate)} > budget {usd(stopped.limit)} "
                    "(list price; the free tier bills $0). State saved; nothing was sent for that step.")
-        views.kv(ui, "next", f"shortsmith resume {run_id} --budget {_suggest_budget(s, history):.2f}")
+        views.kv(ui, "next", f"shortsmith resume {run_id} --budget {budget.suggested(s, history):.2f}")
         return ExitCode.OVER_BUDGET
     if snapshot.next:
         views.kv(ui, "paused", Text(f"at the hero-clip question after {seconds:.0f} s (state saved)", style="bold yellow"))
@@ -770,6 +767,30 @@ def doctor(ctx: typer.Context) -> None:
             ui.error(f"not ready: {', '.join(failed)}", "fix the FAIL lines above (.env.example lists the keys)")
             raise typer.Exit(int(ExitCode.ERROR))
         ui.say("ready: `shortsmith make \"your topic\"` costs $0 with mock media on the Gemini free tier")
+
+
+@app.command(rich_help_panel="Setup", short_help="Start the web API on 127.0.0.1:8010 (for the page in web/).")
+def serve(
+    ctx: typer.Context,
+    # metavar must not be "PORT": Typer then names the option --PORT itself (Phase 7, E3)
+    port: Annotated[int, typer.Option("--port", min=1024, max=65535, metavar="NUMBER", help="The API's port on 127.0.0.1.")] = 8010,
+    no_trace: Annotated[bool, typer.Option("--no-trace", help="Don't record the web's runs in MLflow.")] = False,
+) -> None:
+    """Start the web API (FastAPI + Server-Sent Events) on 127.0.0.1 only, for the Next.js page in web/.
+    Runs go through a queue, one at a time, with mock media only (free placeholders; --real is CLI-only).
+
+    Then, in a second terminal: cd web; npm run dev   and open http://127.0.0.1:3000
+    """
+    session: Session = ctx.obj
+    with failures(session):
+        from shortsmith import api
+
+        ui = session.ui
+        ui.say(Text(f"Shortsmith API on http://{api.HOST}:{port}  (docs: http://{api.HOST}:{port}/docs)", style="bold"))
+        ui.say(f"web page: cd web; npm run dev -> http://127.0.0.1:3000 | CORS: {', '.join(api.web_origins())}")
+        ui.say("media: mock placeholders only (free) | one run at a time, the rest queued | Ctrl+C stops it "
+               "(a run in progress is saved after its last finished node; resume it from the page)")
+        api.serve(port=port, trace=not no_trace)
 
 
 @app.command(rich_help_panel="Setup", short_help="Start the MCP server on stdio (for Claude Desktop).")

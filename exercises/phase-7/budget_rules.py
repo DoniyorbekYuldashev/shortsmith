@@ -4,7 +4,7 @@ Phase 7 has no 🧠 step; this one is for practice. Four small functions are the
 src/shortsmith/budget.py and cli.py:
 1. estimate_call: what one LLM call will cost, from the ledger's history (budget.call_cost).
 2. would_exceed: the stop rule checked before every node (budget.check).
-3. suggest_budget: the --budget a stopped run needs to finish (cli._suggest_budget).
+3. suggest_budget: the --budget a stopped run needs to finish (budget.suggested; cli._suggest_budget until Phase 8).
 4. exit_code: one outcome -> one number, the same in every command (cli.ExitCode).
 
 Write these first, then compare with the real ones.

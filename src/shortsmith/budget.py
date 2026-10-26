@@ -23,6 +23,7 @@ The budget counts LIST price. On Gemini's free tier every call is billed $0; the
 what the same run would cost on a paid tier, which is what a budget is meant to cap.
 """
 
+import math
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -170,3 +171,10 @@ def nodes_left(state: RunState) -> list[str]:
     reviews_left = max(0, state.max_rounds + 1 - len(state.critic_rounds))
     revisions_left = max(0, state.max_rounds - len({r.round for r in state.revisions}))
     return left + ["critic"] * reviews_left + ["revise"] * revisions_left
+
+
+def suggested(state: RunState, history: list[ledger.LedgerEntry]) -> float:
+    """After a stop: spent so far + every LLM node still allowed, rounded up to a whole cent. A budget
+    that surely finishes, not the cheapest one (the CLI's `next:` line and the web page's button)."""
+    need = spent(state.run_id, history) + sum(llm_estimate(n, history).usd for n in nodes_left(state))
+    return max(0.01, math.ceil(need * 100) / 100)

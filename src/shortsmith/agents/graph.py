@@ -331,14 +331,18 @@ Approver = Callable[[dict], Any]  # the interrupt's value -> the answer, or None
 
 
 def drive(app: CompiledStateGraph, payload: Any, run_id: str, approve: Approver | None = None,
-          on_update: Callable[[str, dict], None] | None = None, on_start: NodeStart | None = None) -> dict:
+          on_update: Callable[[str, dict], None] | None = None, on_start: NodeStart | None = None,
+          on_made: producer.MadeHook | None = None) -> dict:
     """Run (or resume) until END or an unanswered interrupt; returns the state's values.
 
     stream(stream_mode="updates") yields {node: what it returned} after each node: that is the
     progress the CLI prints. An interrupt ends the stream; the answer goes back in as Command(resume=...).
     A node's exception (BudgetExceeded included) passes through; its checkpoint is the last finished node.
+    on_start / on_made reach inside the nodes (a node starts; the producer made a file) through context
+    variables: the web API's live events (Phase 8) use them, the CLI uses on_start for its spinner.
     """
     token = ON_START.set(on_start)
+    made_token = producer.ON_MADE.set(on_made)
     try:
         while True:
             for update in app.stream(payload, config(run_id), stream_mode="updates", durability="sync"):
@@ -355,6 +359,7 @@ def drive(app: CompiledStateGraph, payload: Any, run_id: str, approve: Approver 
                 return snapshot.values  # paused: resume later with an answer
             payload = Command(resume=answer)
     finally:
+        producer.ON_MADE.reset(made_token)
         ON_START.reset(token)
 
 

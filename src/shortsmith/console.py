@@ -38,7 +38,7 @@ DOING = {
     "revise": "rewriting the weak scenes",
 }
 
-STATUS_STYLE = {"finished": "green", "running": "cyan", "paused": "yellow", "over_budget": "yellow", "crashed": "red", "no_checkpoint": "dim"}
+STATUS_STYLE = {"finished": "green", "running": "cyan", "queued": "cyan", "paused": "yellow", "over_budget": "yellow", "crashed": "red", "no_checkpoint": "dim"}
 
 
 def usd(value: float | None, digits: int = 4) -> str:

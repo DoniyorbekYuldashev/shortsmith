@@ -17,6 +17,8 @@ media goes "via MCP" (PLAN §2) at the cost of one server start (~2 s) per produ
 
 Phase 7 adds two users of the same rules: `pending()` says what a pass WOULD make (the budget
 estimates it before the node runs), and `only=` limits a pass to some scenes (`rerun-scene`).
+Phase 8 adds a hook: ON_MADE is told after each file, so the web page shows a thumbnail as soon
+as its image exists instead of after the whole pass.
 """
 
 import hashlib
@@ -24,6 +26,7 @@ import json
 import shutil
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -35,6 +38,16 @@ from shortsmith.models import Scene, Script
 
 CallTool = Callable[[str, str], str]  # (tool name, JSON arguments) -> short JSON result; raises on failure
 MANIFEST = "media.json"
+
+# Told after each file a pass makes: ("image" | "voice" | "clip", scene). A context variable like
+# graph.ON_START: graph.drive(on_made=...) sets it, so produce()'s callers don't change.
+MadeHook = Callable[[str, int], None]
+ON_MADE: ContextVar[MadeHook | None] = ContextVar("shortsmith_on_made", default=None)
+
+
+def _tell(kind: str, scene: int) -> None:
+    if (hook := ON_MADE.get()) is not None:
+        hook(kind, scene)
 
 
 class Made(BaseModel):
@@ -139,6 +152,7 @@ def produce(run_dir: Path, plan: Script, hero: HeroPlan | None, call_tool: CallT
             entry["image"] = fingerprint(scene.visual_prompt)
             save_manifest(run_dir, manifest)
             made.images.append(scene.idx)
+            _tell("image", scene.idx)
 
         if voice_stale(run_dir, entry, scene, voice):
             archive(run_dir, tools.audio_file(scene.idx), round_)
@@ -146,6 +160,7 @@ def produce(run_dir: Path, plan: Script, hero: HeroPlan | None, call_tool: CallT
             entry["voice"] = fingerprint(scene.narration, voice)
             save_manifest(run_dir, manifest)
             made.voices.append(scene.idx)
+            _tell("voice", scene.idx)
 
     if hero and hero.approved and (only is None or hero.scene in only) and clip_needed(run_dir, plan, hero):
         entry = manifest[str(hero.scene)]
@@ -154,6 +169,7 @@ def produce(run_dir: Path, plan: Script, hero: HeroPlan | None, call_tool: CallT
         entry["clip"] = clip_key(entry, hero)
         save_manifest(run_dir, manifest)
         made.clips.append(hero.scene)
+        _tell("clip", hero.scene)
     return made
 
 

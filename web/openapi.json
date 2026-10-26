@@ -1,0 +1,3702 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Shortsmith API",
+    "description": "One line of text in, a ~30-second vertical video out. Local only (127.0.0.1), mock media only, one run at a time.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/runs": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Start Run",
+        "description": "Queue a new run. It starts when the worker is free; follow it at `events`.",
+        "operationId": "start_run_runs_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartRun"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "List Runs",
+        "description": "The runs, newest first (0 = all), with the worker's status on top of the checkpoint's.",
+        "operationId": "list_runs_runs_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 0,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RunSummary"
+                  },
+                  "title": "Response List Runs Runs Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{run_id}": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Show Run",
+        "operationId": "show_run_runs__run_id__get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{run_id}/approval": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Answer Approval",
+        "description": "Answer the hero-clip question of a paused run: yes = the clip, no = Ken Burns for that scene.",
+        "operationId": "answer_approval_runs__run_id__approval_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Answer"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{run_id}/resume": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Resume Run",
+        "description": "Continue a stopped run from its checkpoint (nothing finished is paid for again): after a budget\nstop, with a bigger budget; after a crash or a server restart, as it was.",
+        "operationId": "resume_run_runs__run_id__resume_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResumeRun"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{run_id}/events": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "summary": "Run Events",
+        "description": "The run's events as Server-Sent Events: everything after `after` (or the Last-Event-ID header a\nreconnecting browser sends), then new ones as they happen. Ends after `done`; follow=false ends\nafter the replay. The event types are the models of GET /runs/{id}/log.",
+        "operationId": "run_events_runs__run_id__events_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "After"
+            }
+          },
+          {
+            "name": "follow",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Follow"
+            }
+          },
+          {
+            "name": "last-event-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last-Event-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "text/event-stream: `event:` = the type, `data:` = one event of GET /runs/{run_id}/log as JSON, `id:` = its id",
+            "content": {
+              "application/json": {
+                "schema": {}
+              },
+              "text/event-stream": {}
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "204": {
+            "description": "The run finished and every event was sent: stop reconnecting"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{run_id}/log": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "summary": "Run Log",
+        "description": "The run's events so far, as one JSON list (what the stream would replay).",
+        "operationId": "run_log_runs__run_id__log_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "After"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/Queued"
+                      },
+                      {
+                        "$ref": "#/components/schemas/RunStarted"
+                      },
+                      {
+                        "$ref": "#/components/schemas/NodeStarted"
+                      },
+                      {
+                        "$ref": "#/components/schemas/NodeFinished"
+                      },
+                      {
+                        "$ref": "#/components/schemas/MediaMade"
+                      },
+                      {
+                        "$ref": "#/components/schemas/ApprovalNeeded"
+                      },
+                      {
+                        "$ref": "#/components/schemas/ApprovalAnswered"
+                      },
+                      {
+                        "$ref": "#/components/schemas/VideoMade"
+                      },
+                      {
+                        "$ref": "#/components/schemas/CriticReported"
+                      },
+                      {
+                        "$ref": "#/components/schemas/Revised"
+                      },
+                      {
+                        "$ref": "#/components/schemas/BudgetStopped"
+                      },
+                      {
+                        "$ref": "#/components/schemas/Failed"
+                      },
+                      {
+                        "$ref": "#/components/schemas/Done"
+                      }
+                    ],
+                    "discriminator": {
+                      "propertyName": "type",
+                      "mapping": {
+                        "queued": "#/components/schemas/Queued",
+                        "run_started": "#/components/schemas/RunStarted",
+                        "node_started": "#/components/schemas/NodeStarted",
+                        "node_finished": "#/components/schemas/NodeFinished",
+                        "media_made": "#/components/schemas/MediaMade",
+                        "approval_needed": "#/components/schemas/ApprovalNeeded",
+                        "approval_answered": "#/components/schemas/ApprovalAnswered",
+                        "video_made": "#/components/schemas/VideoMade",
+                        "critic_report": "#/components/schemas/CriticReported",
+                        "revision": "#/components/schemas/Revised",
+                        "budget_stopped": "#/components/schemas/BudgetStopped",
+                        "failed": "#/components/schemas/Failed",
+                        "done": "#/components/schemas/Done"
+                      }
+                    }
+                  },
+                  "title": "Response Run Log Runs  Run Id  Log Get"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{run_id}/files/{path}": {
+      "get": {
+        "tags": [
+          "files"
+        ],
+        "summary": "Run File",
+        "description": "A file inside the run folder (images, voices, clips, critic frames, final.mp4). Range requests\nwork (FileResponse), so the browser can seek in the video. Nothing outside the folder, ever.",
+        "operationId": "run_file_runs__run_id__files__path__get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/costs": {
+      "get": {
+        "tags": [
+          "costs"
+        ],
+        "summary": "Get Costs",
+        "description": "The ledger by day, run, model and step; list price next to billed; today's free-tier use.",
+        "operationId": "get_costs_costs_get",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Days"
+            }
+          },
+          {
+            "name": "run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Run"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostReport"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/queue": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Queue",
+        "operationId": "queue_queue_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueueView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/options": {
+      "get": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "Options",
+        "operationId": "options_options_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Options"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "Health",
+        "description": "What `shortsmith doctor` checks, as data: never a key, the database URL masked.",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Accepted": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          "queued": {
+            "$ref": "#/components/schemas/Queued"
+          },
+          "events": {
+            "type": "string",
+            "title": "Events"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "status",
+          "queued",
+          "events"
+        ],
+        "title": "Accepted"
+      },
+      "Answer": {
+        "properties": {
+          "answer": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "no"
+            ],
+            "title": "Answer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "answer"
+        ],
+        "title": "Answer"
+      },
+      "ApprovalAnswered": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "default": 0
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "type": {
+            "type": "string",
+            "const": "approval_answered",
+            "title": "Type",
+            "default": "approval_answered"
+          },
+          "answer": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "no"
+            ],
+            "title": "Answer"
+          },
+          "by": {
+            "type": "string",
+            "enum": [
+              "person",
+              "policy"
+            ],
+            "title": "By"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "at",
+          "type",
+          "answer",
+          "by"
+        ],
+        "title": "ApprovalAnswered"
+      },
+      "ApprovalNeeded": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "default": 0
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "type": {
+            "type": "string",
+            "const": "approval_needed",
+            "title": "Type",
+            "default": "approval_needed"
+          },
+          "question": {
+            "type": "string",
+            "title": "Question"
+          },
+          "scene": {
+            "type": "integer",
+            "title": "Scene"
+          },
+          "motion": {
+            "type": "string",
+            "title": "Motion"
+          },
+          "cost_usd": {
+            "type": "number",
+            "title": "Cost Usd"
+          },
+          "mock": {
+            "type": "boolean",
+            "title": "Mock"
+          },
+          "waiting": {
+            "type": "boolean",
+            "title": "Waiting"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "at",
+          "type",
+          "question",
+          "scene",
+          "motion",
+          "cost_usd",
+          "mock",
+          "waiting"
+        ],
+        "title": "ApprovalNeeded",
+        "description": "The hero-clip question (graph.HeroQuestion). With policy \"ask\" the run pauses here."
+      },
+      "BudgetStopped": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "default": 0
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "type": {
+            "type": "string",
+            "const": "budget_stopped",
+            "title": "Type",
+            "default": "budget_stopped"
+          },
+          "node": {
+            "type": "string",
+            "title": "Node"
+          },
+          "spent_usd": {
+            "type": "number",
+            "title": "Spent Usd"
+          },
+          "estimate_usd": {
+            "type": "number",
+            "title": "Estimate Usd"
+          },
+          "limit_usd": {
+            "type": "number",
+            "title": "Limit Usd"
+          },
+          "suggested_usd": {
+            "type": "number",
+            "title": "Suggested Usd"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "at",
+          "type",
+          "node",
+          "spent_usd",
+          "estimate_usd",
+          "limit_usd",
+          "suggested_usd",
+          "message"
+        ],
+        "title": "BudgetStopped",
+        "description": "Stopped before a node that would take the run over its budget; nothing was sent for it."
+      },
+      "CostReport": {
+        "properties": {
+          "since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run"
+          },
+          "free_tier": {
+            "type": "boolean",
+            "title": "Free Tier"
+          },
+          "total": {
+            "$ref": "#/components/schemas/CostRow"
+          },
+          "by_day": {
+            "items": {
+              "$ref": "#/components/schemas/CostRow"
+            },
+            "type": "array",
+            "title": "By Day"
+          },
+          "by_run": {
+            "items": {
+              "$ref": "#/components/schemas/CostRow"
+            },
+            "type": "array",
+            "title": "By Run"
+          },
+          "by_model_step": {
+            "items": {
+              "$ref": "#/components/schemas/CostRow"
+            },
+            "type": "array",
+            "title": "By Model Step"
+          },
+          "quotas": {
+            "$ref": "#/components/schemas/Quotas"
+          }
+        },
+        "type": "object",
+        "required": [
+          "since",
+          "run",
+          "free_tier",
+          "total",
+          "by_day",
+          "by_run",
+          "by_model_step",
+          "quotas"
+        ],
+        "title": "CostReport"
+      },
+      "CostRow": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "calls": {
+            "type": "integer",
+            "title": "Calls",
+            "default": 0
+          },
+          "prompt_tokens": {
+            "type": "integer",
+            "title": "Prompt Tokens",
+            "default": 0
+          },
+          "completion_tokens": {
+            "type": "integer",
+            "title": "Completion Tokens",
+            "default": 0
+          },
+          "list_usd": {
+            "type": "number",
+            "title": "List Usd",
+            "default": 0.0
+          },
+          "billed_usd": {
+            "type": "number",
+            "title": "Billed Usd",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "required": [
+          "key"
+        ],
+        "title": "CostRow"
+      },
+      "CriticReport": {
+        "properties": {
+          "score": {
+            "type": "number",
+            "title": "Score"
+          },
+          "hook": {
+            "type": "string",
+            "title": "Hook"
+          },
+          "weak_scenes": {
+            "items": {
+              "$ref": "#/components/schemas/SceneIssue"
+            },
+            "type": "array",
+            "title": "Weak Scenes"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "cannot_judge": {
+            "type": "string",
+            "title": "Cannot Judge"
+          },
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "video",
+              "script"
+            ],
+            "title": "Mode"
+          },
+          "frames": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Frames"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "checks": {
+            "$ref": "#/components/schemas/ScriptChecks"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "score",
+          "hook",
+          "weak_scenes",
+          "summary",
+          "cannot_judge",
+          "round",
+          "mode",
+          "frames",
+          "model",
+          "checks"
+        ],
+        "title": "CriticReport",
+        "description": "One critic round, as the graph keeps it (RunState.critic_rounds)."
+      },
+      "CriticReported": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "default": 0
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "type": {
+            "type": "string",
+            "const": "critic_report",
+            "title": "Type",
+            "default": "critic_report"
+          },
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "score": {
+            "type": "number",
+            "title": "Score"
+          },
+          "pass_score": {
+            "type": "number",
+            "title": "Pass Score"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "hook": {
+            "type": "string",
+            "title": "Hook"
+          },
+          "weak_scenes": {
+            "items": {
+              "$ref": "#/components/schemas/SceneIssue"
+            },
+            "type": "array",
+            "title": "Weak Scenes"
+          },
+          "frames": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Frames"
+          },
+          "frame_urls": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Frame Urls"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "then": {
+            "type": "string",
+            "enum": [
+              "revise",
+              "done"
+            ],
+            "title": "Then"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "at",
+          "type",
+          "round",
+          "score",
+          "pass_score",
+          "summary",
+          "hook",
+          "weak_scenes",
+          "frames",
+          "frame_urls",
+          "model",
+          "then",
+          "reason"
+        ],
+        "title": "CriticReported"
+      },
+      "Done": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "default": 0
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "type": {
+            "type": "string",
+            "const": "done",
+            "title": "Type",
+            "default": "done"
+          },
+          "final_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Url"
+          },
+          "scores": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Scores"
+          },
+          "stop_reason": {
+            "type": "string",
+            "title": "Stop Reason"
+          },
+          "seconds": {
+            "type": "number",
+            "title": "Seconds"
+          },
+          "calls": {
+            "type": "integer",
+            "title": "Calls"
+          },
+          "tokens": {
+            "type": "integer",
+            "title": "Tokens"
+          },
+          "cost_usd": {
+            "type": "number",
+            "title": "Cost Usd"
+          },
+          "billed_usd": {
+            "type": "number",
+            "title": "Billed Usd"
+          },
+          "budget_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Usd"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "at",
+          "type",
+          "final_url",
+          "scores",
+          "stop_reason",
+          "seconds",
+          "calls",
+          "tokens",
+          "cost_usd",
+          "billed_usd",
+          "budget_usd"
+        ],
+        "title": "Done"
+      },
+      "Failed": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "default": 0
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "type": {
+            "type": "string",
+            "const": "failed",
+            "title": "Type",
+            "default": "failed"
+          },
+          "node": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "hint": {
+            "type": "string",
+            "title": "Hint"
+          },
+          "interrupted": {
+            "type": "boolean",
+            "title": "Interrupted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "at",
+          "type",
+          "node",
+          "message",
+          "hint",
+          "interrupted"
+        ],
+        "title": "Failed",
+        "description": "A node failed, or the server stopped mid-run. The checkpoint keeps everything finished: resumable."
+      },
+      "Files": {
+        "properties": {
+          "final_mp4": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Mp4"
+          },
+          "video": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VideoInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "images": {
+            "type": "integer",
+            "title": "Images"
+          },
+          "voices": {
+            "type": "integer",
+            "title": "Voices"
+          },
+          "hero_clips": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Hero Clips"
+          },
+          "critic_frames": {
+            "type": "integer",
+            "title": "Critic Frames"
+          },
+          "history": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "History"
+          },
+          "saved": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Saved"
+          }
+        },
+        "type": "object",
+        "required": [
+          "final_mp4",
+          "video",
+          "images",
+          "voices",
+          "hero_clips",
+          "critic_frames",
+          "history",
+          "saved"
+        ],
+        "title": "Files"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "Health": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "critic_model": {
+            "type": "string",
+            "title": "Critic Model"
+          },
+          "key_set": {
+            "type": "boolean",
+            "title": "Key Set"
+          },
+          "youtube_key_set": {
+            "type": "boolean",
+            "title": "Youtube Key Set"
+          },
+          "media": {
+            "type": "string",
+            "const": "mock",
+            "title": "Media"
+          },
+          "free_tier": {
+            "type": "boolean",
+            "title": "Free Tier"
+          },
+          "ffmpeg": {
+            "type": "boolean",
+            "title": "Ffmpeg"
+          },
+          "research_ready": {
+            "type": "boolean",
+            "title": "Research Ready"
+          },
+          "vector_store": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoreStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/Problem"
+            },
+            "type": "array",
+            "title": "Problems"
+          },
+          "queue": {
+            "$ref": "#/components/schemas/QueueView"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "version",
+          "provider",
+          "model",
+          "critic_model",
+          "key_set",
+          "youtube_key_set",
+          "media",
+          "free_tier",
+          "ffmpeg",
+          "research_ready",
+          "vector_store",
+          "problems",
+          "queue"
+        ],
+        "title": "Health"
+      },
+      "HeroPlan": {
+        "properties": {
+          "scene": {
+            "type": "integer",
+            "title": "Scene"
+          },
+          "motion_prompt": {
+            "type": "string",
+            "title": "Motion Prompt"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "fallback": {
+            "type": "string",
+            "enum": [
+              "zoom_in",
+              "zoom_out",
+              "pan_left",
+              "pan_right"
+            ],
+            "title": "Fallback"
+          },
+          "cost_usd": {
+            "type": "number",
+            "title": "Cost Usd"
+          },
+          "approved": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scene",
+          "motion_prompt",
+          "reason",
+          "fallback",
+          "cost_usd"
+        ],
+        "title": "HeroPlan",
+        "description": "The one paid clip of a video, and whether a person said yes to it (Step 6.6)."
+      },
+      "MediaMade": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "default": 0
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "type": {
+            "type": "string",
+            "const": "media_made",
+            "title": "Type",
+            "default": "media_made"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "image",
+              "voice",
+              "clip"
+            ],
+            "title": "Kind"
+          },
+          "scene": {
+            "type": "integer",
+            "title": "Scene"
+          },
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "at",
+          "type",
+          "kind",
+          "scene",
+          "round",
+          "path",
+          "url"
+        ],
+        "title": "MediaMade",
+        "description": "One file of a producer pass: the page shows the thumbnail now, not after the whole pass."
+      },
+      "ModelToday": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "requests": {
+            "type": "integer",
+            "title": "Requests"
+          },
+          "daily_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Limit"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "requests",
+          "daily_limit"
+        ],
+        "title": "ModelToday"
+      },
+      "NodeCost": {
+        "properties": {
+          "node": {
+            "type": "string",
+            "title": "Node"
+          },
+          "calls": {
+            "type": "integer",
+            "title": "Calls",
+            "default": 0
+          },
+          "prompt_tokens": {
+            "type": "integer",
+            "title": "Prompt Tokens",
+            "default": 0
+          },
+          "completion_tokens": {
+            "type": "integer",
+            "title": "Completion Tokens",
+            "default": 0
+          },
+          "cost_usd": {
+            "type": "number",
+            "title": "Cost Usd",
+            "default": 0.0
+          },
+          "billed_usd": {
+            "type": "number",
+            "title": "Billed Usd",
+            "default": 0.0
+          },
+          "seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seconds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "node"
+        ],
+        "title": "NodeCost"
+      },
+      "NodeFinished": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "default": 0
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "type": {
+            "type": "string",
+            "const": "node_finished",
+            "title": "Type",
+            "default": "node_finished"
+          },
+          "node": {
+            "type": "string",
+            "title": "Node"
+          },
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "seconds": {
+            "type": "number",
+            "title": "Seconds"
+          },
+          "calls": {
+            "type": "integer",
+            "title": "Calls"
+          },
+          "prompt_tokens": {
+            "type": "integer",
+            "title": "Prompt Tokens"
+          },
+          "completion_tokens": {
+            "type": "integer",
+            "title": "Completion Tokens"
+          },
+          "cost_usd": {
+            "type": "number",
+            "title": "Cost Usd"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "at",
+          "type",
+          "node",
+          "round",
+          "seconds",
+          "calls",
+          "prompt_tokens",
+          "completion_tokens",
+          "cost_usd",
+          "summary"
+        ],
+        "title": "NodeFinished"
+      },
+      "NodeStarted": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "default": 0
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "type": {
+            "type": "string",
+            "const": "node_started",
+            "title": "Type",
+            "default": "node_started"
+          },
+          "node": {
+            "type": "string",
+            "title": "Node"
+          },
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "doing": {
+            "type": "string",
+            "title": "Doing"
+          },
+          "estimate_usd": {
+            "type": "number",
+            "title": "Estimate Usd"
+          },
+          "basis": {
+            "type": "string",
+            "title": "Basis"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "at",
+          "type",
+          "node",
+          "round",
+          "doing",
+          "estimate_usd",
+          "basis"
+        ],
+        "title": "NodeStarted"
+      },
+      "Options": {
+        "properties": {
+          "languages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Languages"
+          },
+          "brands": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Brands"
+          },
+          "defaults": {
+            "$ref": "#/components/schemas/StartRun"
+          }
+        },
+        "type": "object",
+        "required": [
+          "languages",
+          "brands",
+          "defaults"
+        ],
+        "title": "Options"
+      },
+      "Problem": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "hint": {
+            "type": "string",
+            "title": "Hint",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "Problem",
+        "description": "Every refusal: one line on what is wrong, one on what to do (as the CLI's error + next)."
+      },
+      "ProblemResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/Problem"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ProblemResponse"
+      },
+      "QueueView": {
+        "properties": {
+          "running": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Running"
+          },
+          "node": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node"
+          },
+          "queued": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Queued"
+          },
+          "max_queued": {
+            "type": "integer",
+            "title": "Max Queued"
+          }
+        },
+        "type": "object",
+        "required": [
+          "running",
+          "node",
+          "queued",
+          "max_queued"
+        ],
+        "title": "QueueView"
+      },
+      "Queued": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "default": 0
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "type": {
+            "type": "string",
+            "const": "queued",
+            "title": "Type",
+            "default": "queued"
+          },
+          "position": {
+            "type": "integer",
+            "title": "Position"
+          },
+          "ahead": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Ahead"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "at",
+          "type",
+          "position",
+          "ahead"
+        ],
+        "title": "Queued",
+        "description": "Accepted, waiting for the worker (one run at a time)."
+      },
+      "Quotas": {
+        "properties": {
+          "day_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Day Start"
+          },
+          "gemini": {
+            "items": {
+              "$ref": "#/components/schemas/ModelToday"
+            },
+            "type": "array",
+            "title": "Gemini"
+          },
+          "youtube_units": {
+            "type": "integer",
+            "title": "Youtube Units"
+          },
+          "youtube_cap": {
+            "type": "integer",
+            "title": "Youtube Cap"
+          },
+          "youtube_limit": {
+            "type": "integer",
+            "title": "Youtube Limit"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "day_start",
+          "gemini",
+          "youtube_units",
+          "youtube_cap",
+          "youtube_limit",
+          "notes"
+        ],
+        "title": "Quotas"
+      },
+      "RerunRecord": {
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "scene": {
+            "type": "integer",
+            "title": "Scene"
+          },
+          "made": {
+            "type": "string",
+            "title": "Made"
+          },
+          "prompt_before": {
+            "type": "string",
+            "title": "Prompt Before"
+          },
+          "prompt_after": {
+            "type": "string",
+            "title": "Prompt After"
+          },
+          "narration_before": {
+            "type": "string",
+            "title": "Narration Before"
+          },
+          "narration_after": {
+            "type": "string",
+            "title": "Narration After"
+          },
+          "motion_before": {
+            "type": "string",
+            "title": "Motion Before"
+          },
+          "motion_after": {
+            "type": "string",
+            "title": "Motion After"
+          },
+          "cost_usd": {
+            "type": "number",
+            "title": "Cost Usd"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "scene",
+          "made",
+          "prompt_before",
+          "prompt_after",
+          "narration_before",
+          "narration_after",
+          "motion_before",
+          "motion_after",
+          "cost_usd"
+        ],
+        "title": "RerunRecord",
+        "description": "One rerun, as reruns.json keeps it."
+      },
+      "ResumeRun": {
+        "properties": {
+          "budget_usd": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Usd",
+            "description": "A new budget (list price), saved with the run."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ResumeRun"
+      },
+      "Revised": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "default": 0
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "type": {
+            "type": "string",
+            "const": "revision",
+            "title": "Type",
+            "default": "revision"
+          },
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "scenes": {
+            "items": {
+              "$ref": "#/components/schemas/SceneChange"
+            },
+            "type": "array",
+            "title": "Scenes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "at",
+          "type",
+          "round",
+          "scenes"
+        ],
+        "title": "Revised"
+      },
+      "Revision": {
+        "properties": {
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "scene": {
+            "type": "integer",
+            "title": "Scene"
+          },
+          "problem": {
+            "type": "string",
+            "title": "Problem"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "fix": {
+            "type": "string",
+            "title": "Fix"
+          },
+          "narration_before": {
+            "type": "string",
+            "title": "Narration Before"
+          },
+          "narration_after": {
+            "type": "string",
+            "title": "Narration After"
+          },
+          "visual_before": {
+            "type": "string",
+            "title": "Visual Before"
+          },
+          "visual_after": {
+            "type": "string",
+            "title": "Visual After"
+          }
+        },
+        "type": "object",
+        "required": [
+          "round",
+          "scene",
+          "problem",
+          "reason",
+          "fix",
+          "narration_before",
+          "narration_after",
+          "visual_before",
+          "visual_after"
+        ],
+        "title": "Revision",
+        "description": "One scene's change in one round: kept in the state (RunState.revisions, appended)."
+      },
+      "RunDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "folder": {
+            "type": "string",
+            "title": "Folder"
+          },
+          "created": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created"
+          },
+          "topic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "reviews": {
+            "type": "integer",
+            "title": "Reviews"
+          },
+          "length_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Length S"
+          },
+          "final_mp4": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Mp4"
+          },
+          "calls": {
+            "type": "integer",
+            "title": "Calls"
+          },
+          "tokens": {
+            "type": "integer",
+            "title": "Tokens"
+          },
+          "cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Usd"
+          },
+          "billed_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Billed Usd"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          "settings": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Settings"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scenes": {
+            "items": {
+              "$ref": "#/components/schemas/SceneRow"
+            },
+            "type": "array",
+            "title": "Scenes"
+          },
+          "hook": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hook"
+          },
+          "cta": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cta"
+          },
+          "hero": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HeroPlan"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "critic_rounds": {
+            "items": {
+              "$ref": "#/components/schemas/CriticReport"
+            },
+            "type": "array",
+            "title": "Critic Rounds"
+          },
+          "revisions": {
+            "items": {
+              "$ref": "#/components/schemas/Revision"
+            },
+            "type": "array",
+            "title": "Revisions"
+          },
+          "made": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Made"
+          },
+          "reruns": {
+            "items": {
+              "$ref": "#/components/schemas/RerunRecord"
+            },
+            "type": "array",
+            "title": "Reruns"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/NodeCost"
+            },
+            "type": "array",
+            "title": "Nodes"
+          },
+          "files": {
+            "$ref": "#/components/schemas/Files"
+          },
+          "traces": {
+            "items": {
+              "$ref": "#/components/schemas/TraceInfo"
+            },
+            "type": "array",
+            "title": "Traces"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "folder",
+          "created",
+          "topic",
+          "title",
+          "language",
+          "score",
+          "reviews",
+          "length_s",
+          "final_mp4",
+          "calls",
+          "tokens",
+          "cost_usd",
+          "billed_usd",
+          "status",
+          "settings",
+          "scenes",
+          "hook",
+          "cta",
+          "hero",
+          "critic_rounds",
+          "revisions",
+          "made",
+          "reruns",
+          "nodes",
+          "files",
+          "traces"
+        ],
+        "title": "RunDetail",
+        "description": "Everything `shortsmith show` prints."
+      },
+      "RunStarted": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "default": 0
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "type": {
+            "type": "string",
+            "const": "run_started",
+            "title": "Type",
+            "default": "run_started"
+          },
+          "resumed": {
+            "type": "boolean",
+            "title": "Resumed"
+          },
+          "next": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Next"
+          },
+          "topic": {
+            "type": "string",
+            "title": "Topic"
+          },
+          "language": {
+            "type": "string",
+            "title": "Language"
+          },
+          "research": {
+            "type": "boolean",
+            "title": "Research"
+          },
+          "brand": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brand"
+          },
+          "max_rounds": {
+            "type": "integer",
+            "title": "Max Rounds"
+          },
+          "pass_score": {
+            "type": "number",
+            "title": "Pass Score"
+          },
+          "hero_clips": {
+            "type": "integer",
+            "title": "Hero Clips"
+          },
+          "approve": {
+            "type": "string",
+            "enum": [
+              "ask",
+              "yes",
+              "no"
+            ],
+            "title": "Approve"
+          },
+          "budget_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Usd"
+          },
+          "spent_usd": {
+            "type": "number",
+            "title": "Spent Usd"
+          },
+          "media": {
+            "type": "string",
+            "enum": [
+              "mock",
+              "real"
+            ],
+            "title": "Media"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "critic_model": {
+            "type": "string",
+            "title": "Critic Model"
+          },
+          "free_tier": {
+            "type": "boolean",
+            "title": "Free Tier"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "at",
+          "type",
+          "resumed",
+          "next",
+          "topic",
+          "language",
+          "research",
+          "brand",
+          "max_rounds",
+          "pass_score",
+          "hero_clips",
+          "approve",
+          "budget_usd",
+          "spent_usd",
+          "media",
+          "provider",
+          "model",
+          "critic_model",
+          "free_tier"
+        ],
+        "title": "RunStarted",
+        "description": "The worker took the run: a new run, or a resume (after an answer, a budget stop or a crash)."
+      },
+      "RunStatus": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "finished",
+              "running",
+              "queued",
+              "paused",
+              "over_budget",
+              "crashed",
+              "no_checkpoint"
+            ],
+            "title": "Kind"
+          },
+          "node": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "default": ""
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "readOnly": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "label"
+        ],
+        "title": "RunStatus"
+      },
+      "RunSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "folder": {
+            "type": "string",
+            "title": "Folder"
+          },
+          "created": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created"
+          },
+          "topic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "reviews": {
+            "type": "integer",
+            "title": "Reviews"
+          },
+          "length_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Length S"
+          },
+          "final_mp4": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Mp4"
+          },
+          "calls": {
+            "type": "integer",
+            "title": "Calls"
+          },
+          "tokens": {
+            "type": "integer",
+            "title": "Tokens"
+          },
+          "cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Usd"
+          },
+          "billed_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Billed Usd"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "folder",
+          "created",
+          "topic",
+          "title",
+          "language",
+          "score",
+          "reviews",
+          "length_s",
+          "final_mp4",
+          "calls",
+          "tokens",
+          "cost_usd",
+          "billed_usd",
+          "status"
+        ],
+        "title": "RunSummary",
+        "description": "One row of `shortsmith list`."
+      },
+      "SceneChange": {
+        "properties": {
+          "scene": {
+            "type": "integer",
+            "title": "Scene"
+          },
+          "problem": {
+            "type": "string",
+            "title": "Problem"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "fix": {
+            "type": "string",
+            "title": "Fix"
+          },
+          "changed": {
+            "type": "boolean",
+            "title": "Changed"
+          },
+          "narration_before": {
+            "type": "string",
+            "title": "Narration Before"
+          },
+          "narration_after": {
+            "type": "string",
+            "title": "Narration After"
+          },
+          "visual_before": {
+            "type": "string",
+            "title": "Visual Before"
+          },
+          "visual_after": {
+            "type": "string",
+            "title": "Visual After"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scene",
+          "problem",
+          "reason",
+          "fix",
+          "changed",
+          "narration_before",
+          "narration_after",
+          "visual_before",
+          "visual_after"
+        ],
+        "title": "SceneChange",
+        "description": "One revised scene (reviser.Revision, with `changed` spelled out: it's a property there)."
+      },
+      "SceneIssue": {
+        "properties": {
+          "scene": {
+            "type": "integer",
+            "title": "Scene"
+          },
+          "problem": {
+            "type": "string",
+            "enum": [
+              "narration",
+              "visual",
+              "both"
+            ],
+            "title": "Problem"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "fix": {
+            "type": "string",
+            "title": "Fix"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "scene",
+          "problem",
+          "reason",
+          "fix"
+        ],
+        "title": "SceneIssue"
+      },
+      "SceneRow": {
+        "properties": {
+          "idx": {
+            "type": "integer",
+            "title": "Idx"
+          },
+          "motion": {
+            "type": "string",
+            "title": "Motion"
+          },
+          "words": {
+            "type": "integer",
+            "title": "Words"
+          },
+          "voice_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voice S"
+          },
+          "narration": {
+            "type": "string",
+            "title": "Narration"
+          },
+          "visual_prompt": {
+            "type": "string",
+            "title": "Visual Prompt"
+          }
+        },
+        "type": "object",
+        "required": [
+          "idx",
+          "motion",
+          "words",
+          "voice_s",
+          "narration",
+          "visual_prompt"
+        ],
+        "title": "SceneRow"
+      },
+      "ScriptChecks": {
+        "properties": {
+          "words": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Words"
+          },
+          "total_words": {
+            "type": "integer",
+            "title": "Total Words"
+          },
+          "target": {
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "type": "array",
+            "maxItems": 2,
+            "minItems": 2,
+            "title": "Target"
+          },
+          "in_range": {
+            "type": "boolean",
+            "title": "In Range"
+          },
+          "hook_words": {
+            "type": "integer",
+            "title": "Hook Words"
+          },
+          "hook_copied_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hook Copied From"
+          }
+        },
+        "type": "object",
+        "required": [
+          "words",
+          "total_words",
+          "target",
+          "in_range",
+          "hook_words",
+          "hook_copied_from"
+        ],
+        "title": "ScriptChecks",
+        "description": "Facts code measures before the critic reads the script: an LLM counts words badly."
+      },
+      "Settings": {
+        "properties": {
+          "prompt_version": {
+            "type": "string",
+            "title": "Prompt Version"
+          },
+          "research_on": {
+            "type": "boolean",
+            "title": "Research On"
+          },
+          "brand": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brand"
+          },
+          "max_rounds": {
+            "type": "integer",
+            "title": "Max Rounds"
+          },
+          "pass_score": {
+            "type": "number",
+            "title": "Pass Score"
+          },
+          "via_mcp": {
+            "type": "boolean",
+            "title": "Via Mcp"
+          },
+          "budget_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Usd"
+          },
+          "hero_clips": {
+            "type": "integer",
+            "title": "Hero Clips"
+          },
+          "media": {
+            "type": "string",
+            "title": "Media"
+          }
+        },
+        "type": "object",
+        "required": [
+          "prompt_version",
+          "research_on",
+          "brand",
+          "max_rounds",
+          "pass_score",
+          "via_mcp",
+          "budget_usd",
+          "hero_clips",
+          "media"
+        ],
+        "title": "Settings"
+      },
+      "StartRun": {
+        "properties": {
+          "topic": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Topic",
+            "description": "What the video is about, in a few words."
+          },
+          "language": {
+            "type": "string",
+            "enum": [
+              "en",
+              "uz",
+              "ru"
+            ],
+            "title": "Language",
+            "default": "en"
+          },
+          "research": {
+            "type": "boolean",
+            "title": "Research",
+            "description": "YouTube trends + the hook library (needs the database).",
+            "default": false
+          },
+          "brand": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-z0-9-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brand",
+            "description": "A brand in data/hooks/brands/; implies research."
+          },
+          "approve": {
+            "type": "string",
+            "enum": [
+              "ask",
+              "yes",
+              "no"
+            ],
+            "title": "Approve",
+            "description": "The hero-clip question: ask (pause for a person), yes, or no.",
+            "default": "ask"
+          },
+          "max_rounds": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 0.0,
+            "title": "Max Rounds",
+            "description": "Critic -> revise rounds at most.",
+            "default": 2
+          },
+          "pass_score": {
+            "type": "number",
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Pass Score",
+            "default": 7.0
+          },
+          "budget_usd": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Usd",
+            "description": "Hard limit for the whole run, LIST price."
+          },
+          "hero_clips": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ],
+            "title": "Hero Clips",
+            "default": 1
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "topic"
+        ],
+        "title": "StartRun",
+        "description": "POST /runs. The same choices as `shortsmith make`, minus --real (mock only in this phase)."
+      },
+      "StoreStatus": {
+        "properties": {
+          "backend": {
+            "type": "string",
+            "enum": [
+              "pgvector",
+              "chroma"
+            ],
+            "title": "Backend"
+          },
+          "table": {
+            "type": "string",
+            "title": "Table"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "docker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Docker"
+          },
+          "docker_running": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Docker Running"
+          },
+          "reachable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reachable"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hint"
+          },
+          "postgres": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Postgres"
+          },
+          "pgvector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pgvector"
+          },
+          "rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rows"
+          },
+          "seconds": {
+            "type": "number",
+            "title": "Seconds",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "required": [
+          "backend",
+          "table"
+        ],
+        "title": "StoreStatus"
+      },
+      "TraceInfo": {
+        "properties": {
+          "trace_id": {
+            "type": "string",
+            "title": "Trace Id"
+          },
+          "started": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started"
+          },
+          "seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seconds"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "trace_id",
+          "started",
+          "seconds",
+          "status"
+        ],
+        "title": "TraceInfo"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "VideoInfo": {
+        "properties": {
+          "width": {
+            "type": "integer",
+            "title": "Width"
+          },
+          "height": {
+            "type": "integer",
+            "title": "Height"
+          },
+          "fps": {
+            "type": "number",
+            "title": "Fps"
+          },
+          "frames": {
+            "type": "integer",
+            "title": "Frames"
+          },
+          "duration_s": {
+            "type": "number",
+            "title": "Duration S"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "title": "Size Bytes"
+          },
+          "video_codec": {
+            "type": "string",
+            "title": "Video Codec"
+          },
+          "pix_fmt": {
+            "type": "string",
+            "title": "Pix Fmt"
+          },
+          "audio_codec": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audio Codec"
+          }
+        },
+        "type": "object",
+        "required": [
+          "width",
+          "height",
+          "fps",
+          "frames",
+          "duration_s",
+          "size_bytes",
+          "video_codec",
+          "pix_fmt",
+          "audio_codec"
+        ],
+        "title": "VideoInfo",
+        "description": "What ffprobe says about a finished file: used for the summary and the live tests."
+      },
+      "VideoMade": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "default": 0
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "type": {
+            "type": "string",
+            "const": "video_made",
+            "title": "Type",
+            "default": "video_made"
+          },
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "at",
+          "type",
+          "round",
+          "url"
+        ],
+        "title": "VideoMade",
+        "description": "The editor cut final.mp4 (again, after each revision round)."
+      }
+    }
+  }
+}
