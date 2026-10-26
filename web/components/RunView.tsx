@@ -97,7 +97,7 @@ export function RunView({ id }: { id: string }) {
       {problem && <div className="callout bad"><strong>{problem.message}</strong>{problem.hint && <p className="small">Next: {problem.hint}</p>}</div>}
       {state.phase === "queued" && state.queued && (
         <div className="callout info">
-          <strong>Queued</strong>: one run at a time (the free tier is slow and Flash allows 20 requests a day).
+          <strong>Queued</strong>: one run at a time (one worker; Gemini's free tier is slow and Flash allows 20 requests a day).
           {state.queued.ahead.length > 0 && <> Waiting for {state.queued.ahead.map((r, i) => <span key={r}>{i > 0 && ", "}<Link href={`/runs/${r}`}>{r}</Link></span>)}.</>}
         </div>
       )}

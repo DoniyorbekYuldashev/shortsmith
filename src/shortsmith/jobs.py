@@ -336,13 +336,13 @@ class Jobs:
             payload = graph.Command(resume=job.answer) if job.answer else None
         resumed = bool(snapshot.values)
         history = ledger.entries(ledger.DEFAULT_PATH)
-        p, provider_name = llm.provider(), os.environ.get("LLM_PROVIDER", "openai")
+        provider_name = llm.provider_name()
         self.events.append(job.run_id, RunStarted(
             resumed=resumed, next=list(snapshot.next), topic=s.topic, language=s.language, research=s.research_on,
             brand=s.brand, max_rounds=s.max_rounds, pass_score=s.pass_score, hero_clips=s.hero_clips,
             approve=job.approve, budget_usd=s.budget_usd, spent_usd=budget.spent(s.run_id, history), media=s.media,
-            provider=provider_name, model=p.default_model, critic_model=critic.CRITIC_MODEL,
-            free_tier=provider_name == "gemini" and costs.free_tier()))
+            provider=provider_name, model=llm.model_for("writer"), critic_model=critic.critic_model(),
+            free_tier=provider_name == "gemini" and costs.free_tier(), billing=costs.billing_note()))
         emitter = Emitter(self.events, s, job.approve, self._at_node)
         log.info("run %s: %s", job.run_id, f"resumed before {', '.join(snapshot.next)}" if resumed else "started")
         start = time.perf_counter()
@@ -381,7 +381,7 @@ class Jobs:
                 scores=[r.score for r in s.critic_rounds], stop_reason=graph.stop_reason(s),
                 seconds=round(time.perf_counter() - start, 1), calls=len(lines),
                 tokens=sum(e.prompt_tokens + e.completion_tokens + e.reasoning_tokens for e in lines),
-                cost_usd=sum(e.cost_usd for e in lines), billed_usd=sum(costs.billed_usd(e) for e in lines),
+                cost_usd=sum(e.cost_usd for e in lines), billed_usd=costs.Billing(history).total(lines),
                 budget_usd=s.budget_usd))
             log.info("run %s: done (%s)", job.run_id, graph.stop_reason(s))
 

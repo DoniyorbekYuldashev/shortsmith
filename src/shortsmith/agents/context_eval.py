@@ -76,7 +76,7 @@ def requests(app, run_id: str) -> dict[str, tuple[list[Message], type[BaseModel]
         folder = s.folder / "critic" / "round_0"
         frames = [(int(p.stem.split("_")[1]), 0.0, p) for p in sorted(folder.glob("scene_*.jpg"))]
         built["critic"] = (critic.critic_messages(s.topic, s.plan, critic.checks(s.plan, s.research), frames),
-                           CriticVerdict, critic.CRITIC_MODEL, s)
+                           CriticVerdict, critic.critic_model(), s)
     if s := before.get("revise"):
         built["revise"] = (reviser.revise_messages(s.plan, s.critic_rounds[-1].weak_scenes), reviser.SceneFixes, None, s)
     return built

@@ -24,7 +24,7 @@ export default function Runs() {
   return (
     <>
       <h1>Runs</h1>
-      <p className="muted">Newest first. Cost is list price from the ledger (billed $0 on the Gemini free tier; "-" = made
+      <p className="muted">Newest first. Cost is list price from the ledger (billed $0 on the Gemini free tier or within OpenAI's free daily tokens; "-" = made
         before runs were tagged). Open one to replay it.</p>
       {problem && <div className="callout bad"><strong>{problem.message}</strong><p className="small">Next: {problem.hint}</p></div>}
       <div className="panel">

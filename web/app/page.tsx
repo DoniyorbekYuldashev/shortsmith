@@ -6,7 +6,7 @@ import { type FormEvent, useEffect, useState } from "react";
 
 import { StatusBadge } from "@/components/StatusBadge";
 import { ApiError, api } from "@/lib/api";
-import { usd, when } from "@/lib/format";
+import { tokens, usd, when } from "@/lib/format";
 import type { Health, Options, Problem, RunSummary, StartRun } from "@/lib/types";
 
 // Every field is sent, defaults included: the generated StartRun type has them all as required (openapi-typescript
@@ -114,7 +114,7 @@ export default function Home() {
           {researchDown && <p className="small muted">Research is off: {health?.problems.find((p) => p.message.startsWith("research"))?.hint}</p>}
           <div className="row">
             <button className="primary" type="submit" disabled={busy || !form.topic.trim()}>{busy ? "Starting..." : "Start"}</button>
-            <span className="small muted">Mock media only (free placeholders). A budget counts LIST price: the Gemini free tier bills $0.</span>
+            <span className="small muted">Mock media only (free placeholders). A budget counts LIST price: free tiers and free daily tokens bill $0.</span>
           </div>
         </form>
 
@@ -124,10 +124,15 @@ export default function Home() {
             {!health ? <p className="muted small">checking the API, Docker and the database...</p> : (
               <table className="small">
                 <tbody>
-                  <tr><td>LLM</td><td>{health.provider}: {health.model}, critic {health.critic_model}</td></tr>
-                  <tr><td>API key</td><td>{health.key_set ? "set" : <strong>not set</strong>}</td></tr>
-                  <tr><td>media</td><td>mock placeholders (free)</td></tr>
-                  <tr><td>billing</td><td>{health.free_tier ? "Gemini free tier: $0 billed (costs shown are list price)" : "paid tier: list price is billed"}</td></tr>
+                  {health.setup ? health.setup.roles.filter((r) => !r.role.startsWith("images")).map((r) => (
+                    <tr key={r.role + r.model}><td>{r.role}</td><td>{r.provider}: {r.model}{r.role === "text" ? "" : ` (${r.detail})`}</td></tr>
+                  )) : <tr><td>LLM</td><td>{health.provider}: {health.model}, critic {health.critic_model}</td></tr>}
+                  <tr><td>API keys</td><td>{health.key_set ? "set" : <strong>not set</strong>}</td></tr>
+                  <tr><td>media</td><td>mock placeholders (free; real images are CLI-only)</td></tr>
+                  <tr><td>billing</td><td>{health.billing || (health.free_tier ? "Gemini free tier: $0 billed (costs shown are list price)" : "paid tier: list price is billed")}</td></tr>
+                  {health.allowance?.data_sharing && (
+                    <tr><td>free tokens</td><td>{health.allowance.groups.map((g) => `${g.group}: ${tokens(g.tokens)} of ${tokens(g.daily_tokens)}`).join(" · ")} today (since 00:00 UTC, by our count)</td></tr>
+                  )}
                   <tr><td>research</td><td>{health.research_ready ? `ready (${health.vector_store?.backend ?? "?"}${health.vector_store?.rows ? `, ${health.vector_store.rows} rows` : ""})` : "off: the vector store is down"}</td></tr>
                   <tr><td>queue</td><td>{health.queue.running ? <Link href={`/runs/${health.queue.running}`}>{health.queue.running}</Link> : "idle"}
                     {health.queue.queued.length > 0 && ` + ${health.queue.queued.length} waiting`}</td></tr>

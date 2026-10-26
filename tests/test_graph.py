@@ -91,7 +91,7 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(llm, "MIN_INTERVAL_S", 0)
     monkeypatch.setattr(writer, "_library", {"library: Open loop (en)": "This cafe has no menu."})
     fake = FakeLLM([(5.0, [3]), (8.0, [])])
-    monkeypatch.setattr(llm, "_client", lambda: NS(chat=NS(completions=NS(create=fake.create))))
+    monkeypatch.setattr(llm, "_client", lambda *_: NS(chat=NS(completions=NS(create=fake.create))))
     monkeypatch.setattr(tts, "synthesize", fake_synthesize)
     made = {"images": [], "clips": [], "edits": 0}
 

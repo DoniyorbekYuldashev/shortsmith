@@ -49,8 +49,8 @@ class ExitCode(IntEnum):
 EPILOG = (
     "Settings, highest first: flags > environment variables > .env in the current folder > defaults.\n\n"
     "Exit codes: 0 ok, 1 error, 2 usage, 3 paused for an approval, 4 over budget, 130 interrupted.\n\n"
-    "Money: every call is priced at list price in runs/ledger.jsonl; on the Gemini free tier it is billed $0. "
-    "Images stay free placeholders unless you pass --real."
+    "Money: every call is priced at list price in runs/ledger.jsonl; on the Gemini free tier, or within OpenAI's free "
+    "daily tokens (OPENAI_DATA_SHARING=1), it is billed $0. Images stay free placeholders unless you pass --real."
 )
 
 app = typer.Typer(
@@ -110,7 +110,8 @@ def explain(e: BaseException, run_id: str | None) -> tuple[str, str, ExitCode]:
     import openai
     from pydantic import ValidationError
 
-    from shortsmith import llm, runs
+    from shortsmith import budget, llm, runs
+    from shortsmith.media import images
     from shortsmith.research import stores
 
     resume = f"shortsmith resume {run_id}" if run_id else ""
@@ -125,6 +126,13 @@ def explain(e: BaseException, run_id: str | None) -> tuple[str, str, ExitCode]:
             return "interrupted", saved, ExitCode.INTERRUPTED
         case runs.RunNotFound():
             return str(e), "`shortsmith list` shows the runs", ExitCode.ERROR
+        case images.VerificationRequired():  # before the generic 403 below: this one has a known next step
+            return str(e), e.hint, ExitCode.ERROR
+        case llm.NoCreditError():
+            return (str(e).split(": add credit")[0], "add credit in the OpenAI dashboard (Settings -> Billing), "
+                    f"then {resume or 'try again'}; or LLM_PROVIDER=gemini (free tier)", ExitCode.ERROR)
+        case budget.FreeAllowanceReached():
+            return str(e), f"{e.hint}; then {resume or 'try again'}", ExitCode.OVER_BUDGET
         case llm.DailyQuotaError():
             return (str(e).split("; try another model")[0],
                     f"use another model (--critic-model gemini-3.6-flash for the critic) or wait, then {resume or 'try again'}",
@@ -192,22 +200,32 @@ def _not_blank(value: str) -> str:
     return value.strip()
 
 
-def preflight(real: bool, research: bool = False) -> None:
-    """Fail before anything is spent: ffmpeg, the LLM key, fal's key for real media, and the vector
-    store when the run will research (a database that is down fails here, before a run folder exists)."""
+def preflight(real: bool, research: bool = False, clips: bool = False) -> None:
+    """Fail before anything is spent: ffmpeg, the LLM key, the image provider's key and fal's (hero clips)
+    for real media, and the vector store when the run will research (a database that is down fails here,
+    before a run folder exists)."""
     from shortsmith import llm
+    from shortsmith.media import images
 
     missing = [tool for tool in ("ffmpeg", "ffprobe") if shutil.which(tool) is None]
     if missing:
         raise Problem(f"{' and '.join(missing)} not found on PATH",
                       "install ffmpeg (it includes ffprobe), open a new terminal, then `shortsmith doctor`")
-    p = llm.provider()
-    if not os.environ.get(p.key_env):
-        name = os.environ.get("LLM_PROVIDER", "openai")
-        raise Problem(f"{p.key_env} is not set (LLM_PROVIDER={name})",
-                      "put it in .env in the folder you run from (see .env.example); `shortsmith doctor` checks")
-    if real and not os.environ.get("FAL_KEY"):
-        raise Problem("FAL_KEY is not set, and --real makes images on fal.ai", "add it to .env, or use --mock")
+    from shortsmith.agents import critic
+
+    models = [llm.model_for("writer"), critic.critic_model()] + ([llm.embedding_model()] if research else [])
+    for key in dict.fromkeys(llm.PROVIDERS[llm.provider_of(m)].key_env for m in models):  # each model's own provider
+        if not os.environ.get(key):
+            raise Problem(f"{key} is not set (LLM_PROVIDER={llm.provider_name()})",
+                          "put it in .env in the folder you run from (see .env.example); `shortsmith doctor` checks")
+    if real:
+        chosen = images.source(real=True)
+        if chosen.key_env and not os.environ.get(chosen.key_env):
+            raise Problem(f"{chosen.key_env} is not set, and --real makes images with {chosen.provider} "
+                          f"(IMAGE_PROVIDER={images.image_provider()})", "add it to .env, or use --mock")
+        if clips and not os.environ.get("FAL_KEY"):  # a yes to the hero clip would fail after the images were paid
+            raise Problem("FAL_KEY is not set, and an approved hero clip is made on fal.ai",
+                          "add it to .env, or --hero-clips 0 (Ken Burns only), or use --mock")
     if research:
         from shortsmith.research import rag
 
@@ -221,8 +239,11 @@ def set_media(real: bool) -> None:
 
 def confirm_real(session: Session, lines: list[str], yes: bool) -> None:
     """--real spends money: show the estimate, then ask (or take --yes). Never silent."""
+    from shortsmith.media import images
+
     ui = session.ui
-    ui.say(Text("--real: images (and an approved hero clip) are made on fal.ai and PAID.", style="bold yellow"))
+    ui.say(Text(f"--real: images are made with {images.source(real=True).label} and PAID "
+                "(an approved hero clip on fal.ai too).", style="bold yellow"))
     for line in lines:
         ui.say(f"  {line}")
     if yes:
@@ -303,7 +324,7 @@ def run_graph(session: Session, run_id: str, payload: Any, answer: Answer | None
     seconds = time.perf_counter() - start
 
     views.node_table(ui, s, lines, progress.estimates)
-    views.money(ui, s, lines, len(lines) - before)
+    views.money(ui, s, lines, len(lines) - before, history)
     if root.trace_id:
         views.kv(ui, "trace", f"{root.trace_id} (MLflow: uv run mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5000)")
     if stopped:
@@ -334,7 +355,7 @@ def make(
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Confirm --real without asking (for scripts).", rich_help_panel="Money")] = False,
     max_rounds: Annotated[int, typer.Option(min=0, max=5, metavar="N", help="Critic -> revise rounds at most.", rich_help_panel="Critic loop")] = 2,
     pass_score: Annotated[float, typer.Option(min=0.0, max=10.0, metavar="SCORE", help="Critic score (0-10) at which the video is done.", rich_help_panel="Critic loop")] = 7.0,
-    critic_model: Annotated[str | None, typer.Option(envvar="SHORTSMITH_CRITIC_MODEL", metavar="MODEL", help="The critic's model; default gemini-3.8-flash. Each free Flash model allows 20 requests a day, so gemini-3.6-flash is the fallback.", show_default=False, rich_help_panel="Critic loop")] = None,
+    critic_model: Annotated[str | None, typer.Option(envvar="SHORTSMITH_CRITIC_MODEL", metavar="MODEL", help="The critic's model; default: the provider's (gemini-3.8-flash, or gpt-5.1 on OpenAI). Each free Gemini Flash model allows 20 requests a day, so gemini-3.6-flash is the fallback.", show_default=False, rich_help_panel="Critic loop")] = None,
     prompt: Annotated[PromptVersion, typer.Option(help="Writer prompt version.", rich_help_panel="Advanced")] = PromptVersion.v2,
     mcp: Annotated[bool, typer.Option("--mcp", help="The producer calls the media tools through the MCP server.", rich_help_panel="Advanced")] = False,
     no_trace: Annotated[bool, typer.Option("--no-trace", help="Don't record the run in MLflow (sqlite:///mlflow.db).", rich_help_panel="Advanced")] = False,
@@ -359,7 +380,7 @@ def make(
     with failures(session):
         from shortsmith import budget, ledger
 
-        preflight(real, research=research or brand is not None)
+        preflight(real, research=research or brand is not None, clips=hero_clips > 0 and not simple)
         if critic_model:
             from shortsmith.agents import critic
 
@@ -396,7 +417,7 @@ def _make_simple(session: Session, topic: str, lang: str, research: bool, brand:
     history = ledger.entries(ledger.DEFAULT_PATH)
     est = budget.run_estimate(research or brand is not None, 0, 0, real, history,
                               llm_nodes=["researcher"] if research or brand else [])
-    est.llm_usd += budget.call_cost("writer", llm.provider().default_model, history)[0]  # one script, one call
+    est.llm_usd += budget.call_cost("writer", llm.model_for("writer"), history)[0]  # one script, one call
     if real:
         confirm_real(session, views.estimate_lines(est), yes)
     if budget_usd is not None and est.first_pass_usd > budget_usd:  # no checkpoints here: check once, up front
@@ -417,7 +438,7 @@ def _make_simple(session: Session, topic: str, lang: str, research: bool, brand:
         with ui.spinner("writing the script"):
             straight.new_run(topic, lang, found, run_dir=run_dir)
         script = Script.load(run_dir / "script.json")
-        with ui.spinner(f"images ({'mock placeholders' if images.mock_media() else 'FLUX, paid'})"):
+        with ui.spinner(f"images ({images.source().label})"):
             straight.make_images(script, run_dir)
         with ui.spinner("voice (edge-tts)"):
             voiceovers = straight.make_voice(script, run_dir)
@@ -474,7 +495,7 @@ def resume(
                 updates["budget_usd"] = budget_usd
             if real != (s.media == "real"):
                 updates["media"] = "real" if real else "mock"
-            preflight(real, research="researcher" in budget.nodes_left(s))
+            preflight(real, research="researcher" in budget.nodes_left(s), clips=s.hero_clips > 0 and (s.hero is None or s.hero.approved is not False))
             if real:
                 images_left = len(producer.pending(s.folder, s.plan, s.hero).images) if s.plan else 6
                 est = budget.run_estimate(False, 0 if s.hero is None or s.hero.approved is False else 1,
@@ -531,14 +552,14 @@ def rerun_scene(
             raise Problem(f"run {folder.name} has no script.json: it never reached the producer",
                           "make a new run: shortsmith make \"topic\"")
         real = media is False if media is not None else (state.media == "real" if state else not images.mock_media())
-        preflight(real)
         hero = state.hero if state else None
+        preflight(real, clips=hero is not None)
         req = rerun.RerunRequest(scene=scene, prompt=prompt, narration=narration, image=image, voice=voice)
         preview = rerun.plan_change(Script.load(folder / "script.json"), req, hero)
         if real:
             from shortsmith import ledger
 
-            image_usd = ledger.MEDIA_PRICES[images.FLUX_MODEL] if preview.image else 0.0
+            image_usd = images.price_per_image(real=True) if preview.image else 0.0
             lines = [f"image: {usd(image_usd)}" if preview.image else "image: kept", "voice: free (edge-tts)"]
             if preview.hero_question:
                 lines.append(f"hero clip: ~{usd(ledger.MEDIA_PRICES[animate.CLIP_MODEL], 2)} if you say yes to it")
@@ -616,7 +637,8 @@ def list_(
         total = len(runs.run_folders())
         more = f"; {total - len(rows)} older: --limit 0" if total > len(rows) else ""
         ui.say(f"{len(rows)} of {total} runs{more}. Cost = list price of the run's ledger lines "
-               "(billed $0 on the Gemini free tier; '-' = made before runs were tagged). Details: shortsmith show <id>")
+               "(billed $0 on the Gemini free tier and within OpenAI's free daily tokens; '-' = made before runs were "
+               "tagged). Details: shortsmith show <id>")
 
 
 @app.command(rich_help_panel="Look at runs", short_help="One run in detail: script, critic, cost, files.")
@@ -651,14 +673,15 @@ def cost(
     output: Annotated[Path | None, typer.Option("--output", "-o", metavar="FILE", dir_okay=False, help=OUTPUT_HELP)] = None,
 ) -> None:
     """What was spent, from the ledger: by day, by run, by model and step; list price next to what
-    was billed (the Gemini free tier bills $0); and today's free-tier usage from our own logs."""
+    was billed (the Gemini free tier, and OpenAI's free daily tokens with data sharing, bill $0); and today's
+    free-tier usage from our own logs."""
     session: Session = ctx.obj
     with failures(session):
         from shortsmith import costs, ledger, runs
         from shortsmith.agents import critic
 
         run_id = runs.resolve(run).name if run else None
-        report = costs.report(ledger.entries(ledger.DEFAULT_PATH), days, run_id, critic_model=critic.CRITIC_MODEL)
+        report = costs.report(ledger.entries(ledger.DEFAULT_PATH), days, run_id, critic_model=critic.critic_model())
         with output_to(session, output) as ui:
             if as_json:
                 ui.json(report.model_dump(mode="json"))
@@ -669,14 +692,6 @@ def cost(
 # --- doctor / mcp -----------------------------------------------------------------------------------------------
 
 
-KEYS = {  # what each key is for; doctor says only whether it is set, never any part of it
-    "GEMINI_API_KEY": "LLM calls and embeddings (LLM_PROVIDER=gemini)",
-    "OPENAI_API_KEY": "LLM calls (LLM_PROVIDER=openai)",
-    "FAL_KEY": "real images and hero clips (--real)",
-    "YOUTUBE_API_KEY": "trend research (--research)",
-}
-
-
 def store_rows() -> list[tuple[str, bool | None, str]]:
     """doctor's lines about the RAG vector store. The database is a FAIL when it is the selected store and
     can't be reached: --research and retrieve_hooks would fail, and nothing falls back to another store."""
@@ -684,8 +699,8 @@ def store_rows() -> list[tuple[str, bool | None, str]]:
     from shortsmith.research import rag, stores
 
     try:
-        s = stores.status(rag.collection_name(llm.provider().embedding_model, llm.EMBED_DIMENSIONS))
-    except ValueError as e:  # VECTOR_STORE or LLM_PROVIDER has a value we don't know
+        s = stores.status(rag.collection_name(llm.embedding_model(), llm.EMBED_DIMENSIONS))
+    except ValueError as e:  # VECTOR_STORE or EMBEDDING_PROVIDER has a value we don't know
         return [("vector store", False, str(e))]
     chosen = f"VECTOR_STORE={os.environ['VECTOR_STORE']}" if os.environ.get("VECTOR_STORE") else "the default"
     if s.backend == "chroma":
@@ -704,17 +719,49 @@ def store_rows() -> list[tuple[str, bool | None, str]]:
     return rows + [("database", True, f"PostgreSQL {s.postgres}, pgvector {s.pgvector or 'not created yet'}; {size}; {s.seconds} s")]
 
 
-@app.command(rich_help_panel="Setup", short_help="Check ffmpeg, keys (set or not), media mode and stores.")
+def provider_rows(providers: Any) -> list[tuple[str, bool | None, str]]:
+    """doctor's lines about providers: a model per role (FAIL: no list price for it), every key (FAIL: a
+    text, critic or embeddings model needs it and it is missing; never a character of it), billing and the
+    free-allowance settings. The image provider's key is only information: preflight stops --real without it."""
+    from shortsmith import ledger
+
+    try:
+        setup = providers.setup()
+    except ValueError as e:  # LLM_PROVIDER, EMBEDDING_PROVIDER or IMAGE_PROVIDER has a value we don't know
+        return [("providers", False, str(e))]
+    rows: list[tuple[str, bool | None, str]] = [("LLM_PROVIDER", None, setup.llm_provider)]
+    needed = {r.key_env for r in setup.roles if r.role in ("text", "critic", "embeddings")}
+    for r in setup.roles:
+        ok: bool | None = None if r.role.startswith("images") else True
+        detail = f"{r.provider}: {r.model} ({r.detail})"
+        if ok:
+            try:
+                ledger.cost_usd(r.model, 0, 0)
+            except ValueError as e:
+                ok, detail = False, f"{detail}; {e}"
+        rows.append((r.role, ok, detail))
+    for key, use in providers.KEYS.items():
+        is_set = setup.keys[key]
+        rows.append((key, is_set if key in needed else None, f"{'set' if is_set else 'not set'}; {use}"))
+    a = setup.allowance
+    configured = ", ".join(f"{name}={'set' if on else 'default'}" for name, on in a.configured.items())
+    rows.append(("billing", None, setup.billing))
+    rows.append(("free tokens", None, f"data sharing {'on' if a.data_sharing else 'off'}; {a.daily_tokens['mini']:,} mini + "
+                                      f"{a.daily_tokens['large']:,} large a day; past them: {a.action} ({configured})"))
+    return rows
+
+
+@app.command(rich_help_panel="Setup", short_help="Check ffmpeg, keys (set or not), providers per role, media and stores.")
 def doctor(ctx: typer.Context) -> None:
     """Check the setup without spending anything: ffmpeg, which keys are set (never their values),
-    the LLM provider, mock or real media, and the stores (ledger, checkpoints, MLflow, the vector
-    store: Docker, the database, pgvector, its rows; the password is never shown)."""
+    the provider and model of every role (text, critic, embeddings, images), the free-allowance
+    settings, mock or real media, and the stores (ledger, checkpoints, MLflow, the vector store:
+    Docker, the database, pgvector, its rows; the password is never shown)."""
     session: Session = ctx.obj
     with failures(session):
         import importlib.util
 
-        from shortsmith import ledger, llm, runs
-        from shortsmith.agents import critic
+        from shortsmith import ledger, providers, runs
 
         rows: list[tuple[str, bool | None, str]] = []  # (check, ok? None = information, detail)
         for tool in ("ffmpeg", "ffprobe"):
@@ -726,25 +773,9 @@ def doctor(ctx: typer.Context) -> None:
             rows.append((tool, path is not None, f"{first}; {path}" if path else "not on PATH: install ffmpeg"))
         rows.append((".env", None, "found in this folder (loaded; not printed)" if Path(".env").exists()
                      else "none in this folder (settings come from the environment only)"))
-        name = os.environ.get("LLM_PROVIDER", "openai")
-        try:
-            p = llm.provider()
-            rows.append(("LLM provider", True, f"{name}: {p.default_model}; critic {critic.CRITIC_MODEL}"))
-            needed = p.key_env
-        except ValueError as e:
-            rows.append(("LLM provider", False, str(e)))
-            needed = ""
-        for key, use in KEYS.items():
-            is_set = bool(os.environ.get(key))
-            rows.append((key, is_set if key == needed else None, f"{'set' if is_set else 'not set'}; {use}"))
-        try:
-            ledger.cost_usd(critic.CRITIC_MODEL, 0, 0)
-            rows.append(("critic price", True, f"{critic.CRITIC_MODEL} has a list price in ledger.py"))
-        except ValueError as e:
-            rows.append(("critic price", False, str(e)))
+        rows += provider_rows(providers)
         mock = os.environ.get("MOCK_MEDIA", "1") != "0"
         rows.append(("MOCK_MEDIA", None, "mock: free placeholders" if mock else "0: REAL, PAID media for every run"))
-        rows.append(("billing", None, f"GEMINI_TIER={os.environ.get('GEMINI_TIER', 'free')} (what `cost` counts as billed)"))
         lines = ledger.entries(ledger.DEFAULT_PATH)
         rows.append(("ledger", None, f"{ledger.DEFAULT_PATH}: {len(lines)} lines, {usd(sum(e.cost_usd for e in lines))} list price"))
         threads = runs.checkpoint_threads()
@@ -766,7 +797,7 @@ def doctor(ctx: typer.Context) -> None:
         if failed:
             ui.error(f"not ready: {', '.join(failed)}", "fix the FAIL lines above (.env.example lists the keys)")
             raise typer.Exit(int(ExitCode.ERROR))
-        ui.say("ready: `shortsmith make \"your topic\"` costs $0 with mock media on the Gemini free tier")
+        ui.say("ready: `shortsmith make \"your topic\"` makes free placeholder media; LLM calls are priced in `shortsmith cost`")
 
 
 @app.command(rich_help_panel="Setup", short_help="Start the web API on 127.0.0.1:8010 (for the page in web/).")

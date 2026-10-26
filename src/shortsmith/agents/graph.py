@@ -469,7 +469,7 @@ def run_cli(args: Any) -> None:
             run_id, payload, topic = state.run_id, state.model_dump(), state.topic
             print(f"run {run_id} | {topic!r} ({state.language}) | prompt {state.prompt_version} | "
                   f"max {state.max_rounds} revisions, pass at {state.pass_score:g} | "
-                  f"images: {'mock placeholders' if images.mock_media() else 'FLUX, PAID'}"
+                  f"images: {'mock placeholders' if images.mock_media() else images.source().label + ', PAID'}"
                   f"{' | tools over MCP' if state.via_mcp else ''}")
         before = len(ledger.entries(ledger.DEFAULT_PATH, run_id))
         start = time.perf_counter()

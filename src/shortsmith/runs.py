@@ -335,8 +335,10 @@ def _topic(folder: Path, state: RunState | None) -> str | None:
     return None
 
 
-def summary(folder: Path, snapshot: Any | None, lines: list[ledger.LedgerEntry]) -> RunSummary:
-    """One run's row. `lines`: this run's ledger lines."""
+def summary(folder: Path, snapshot: Any | None, lines: list[ledger.LedgerEntry],
+            billing: costs.Billing | None = None) -> RunSummary:
+    """One run's row. `lines`: this run's ledger lines; `billing`: built over the whole ledger."""
+    billing = billing or costs.Billing(lines)
     state = RunState.model_validate(snapshot.values) if snapshot is not None and snapshot.values else None
     script = _script(folder, state)
     rounds = state.critic_rounds if state and state.critic_rounds else _reports(folder)
@@ -348,7 +350,7 @@ def summary(folder: Path, snapshot: Any | None, lines: list[ledger.LedgerEntry])
         final_mp4=str(final.resolve()) if final.exists() else None, calls=len(lines),
         tokens=sum(e.prompt_tokens + e.completion_tokens + e.reasoning_tokens for e in lines),
         cost_usd=sum(e.cost_usd for e in lines) if lines else None,
-        billed_usd=sum(costs.billed_usd(e) for e in lines) if lines else None,
+        billed_usd=billing.total(lines) if lines else None,
         status=status_of(snapshot, running_pid(folder)),
     )
 
@@ -361,10 +363,12 @@ def list_runs(limit: int | None = None, runs: Path = RUNS, db: Path = CHECKPOINT
         folders = folders[:limit]
     states = snapshots([f.name for f in folders], db)
     by_run: dict[str, list[ledger.LedgerEntry]] = {}
-    for entry in ledger.entries(ledger_path):
+    everything = ledger.entries(ledger_path)
+    for entry in everything:
         if entry.run_id:
             by_run.setdefault(entry.run_id, []).append(entry)
-    return [summary(f, states.get(f.name), by_run.get(f.name, [])) for f in folders]
+    billing = costs.Billing(everything)
+    return [summary(f, states.get(f.name), by_run.get(f.name, []), billing) for f in folders]
 
 
 def traces(run_id: str, db: Path = MLFLOW_DB) -> list[TraceInfo]:
@@ -402,8 +406,10 @@ def _files(folder: Path) -> Files:
     )
 
 
-def node_costs(lines: list[ledger.LedgerEntry], state: RunState | None) -> list[NodeCost]:
+def node_costs(lines: list[ledger.LedgerEntry], state: RunState | None,
+               billing: costs.Billing | None = None) -> list[NodeCost]:
     """Cost per node from the ledger (the money), time per node from the checkpoint's usage."""
+    billing = billing or costs.Billing(lines)
     rows: dict[str, NodeCost] = {}
     for e in lines:
         name = STEP_NODE.get(e.step, e.step)
@@ -412,7 +418,7 @@ def node_costs(lines: list[ledger.LedgerEntry], state: RunState | None) -> list[
         row.prompt_tokens += e.prompt_tokens
         row.completion_tokens += e.completion_tokens + e.reasoning_tokens
         row.cost_usd += e.cost_usd
-        row.billed_usd += costs.billed_usd(e)
+        row.billed_usd += billing(e)
     for name, usage in (state.usage if state else {}).items():
         rows.setdefault(name, NodeCost(node=name)).seconds = usage.seconds
     order = {name: n for n, name in enumerate(NODE_ORDER)}
@@ -422,8 +428,10 @@ def node_costs(lines: list[ledger.LedgerEntry], state: RunState | None) -> list[
 def detail(folder: Path, snapshot: Any | None = None, ledger_path: Path = ledger.DEFAULT_PATH,
            mlflow_db: Path = MLFLOW_DB) -> RunDetail:
     """Everything known about one run."""
-    lines = ledger.entries(ledger_path, folder.name)
-    head = summary(folder, snapshot, lines)
+    everything = ledger.entries(ledger_path)
+    lines = [e for e in everything if e.run_id == folder.name]
+    billing = costs.Billing(everything)
+    head = summary(folder, snapshot, lines, billing)
     state = RunState.model_validate(snapshot.values) if snapshot is not None and snapshot.values else None
     script = _script(folder, state)
     voiceovers = tts.load_voiceovers(folder) or []
@@ -437,5 +445,5 @@ def detail(folder: Path, snapshot: Any | None = None, ledger_path: Path = ledger
         hero=state.hero if state else None,
         critic_rounds=state.critic_rounds if state and state.critic_rounds else _reports(folder),
         revisions=state.revisions if state else [], made=state.made if state else [],
-        reruns=load_records(folder), nodes=node_costs(lines, state), files=_files(folder), traces=traces(folder.name, mlflow_db),
+        reruns=load_records(folder), nodes=node_costs(lines, state, billing), files=_files(folder), traces=traces(folder.name, mlflow_db),
     )

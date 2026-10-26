@@ -549,3 +549,42 @@ def test_a_long_tool_error_keeps_its_first_words_where_ffmpeg_puts_the_cause():
     message, _, _ = cli.explain(error, "r1")
     assert "malloc of size 8294400 failed" in message and message.endswith("(Generic error in an external library)")
     assert len(message) < 400
+
+
+# --- providers per role and OpenAI's free daily tokens (the OpenAI switch, 2026-10-26) -------------------------
+
+
+def test_health_lists_every_roles_provider_and_todays_allowance_without_a_secret(client, env, monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-SECRET-000")
+    monkeypatch.setenv("FAL_KEY", "fal-SECRET-789")
+    monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_DATA_SHARING", "1")
+    ledger.record(ledger.LedgerEntry(step="writer", model="gpt-5-mini-2025-08-07", prompt_tokens=800,
+                                     completion_tokens=1200, cost_usd=0.0026), ledger.DEFAULT_PATH)
+    h = client.get("/health")
+    body = h.json()
+    assert "SECRET" not in h.text
+    assert (body["provider"], body["model"], body["critic_model"], body["key_set"]) == ("openai", "gpt-5-mini", "gpt-5.1", True)
+    roles = {r["role"]: r for r in body["setup"]["roles"]}
+    assert roles["text"]["model"] == "gpt-5-mini" and roles["embeddings"]["model"] == "gemini-embedding-2"
+    assert roles["images (--real)"]["model"] == "gpt-image-2" and body["media"] == "mock"
+    assert body["setup"]["keys"] == {"OPENAI_API_KEY": True, "GEMINI_API_KEY": True, "FAL_KEY": True, "YOUTUBE_API_KEY": False}
+    assert body["setup"]["allowance"]["configured"]["OPENAI_DATA_SHARING"] is True
+    mini = next(g for g in body["allowance"]["groups"] if g["group"] == "mini")
+    assert (mini["tokens"], mini["left"], mini["billed_usd"]) == (2000, 2_498_000, 0)
+    assert "data sharing" in body["billing"]
+
+
+def test_the_web_stays_mock_whatever_the_image_settings_say(env, monkeypatch):
+    monkeypatch.setenv("MOCK_MEDIA", "0")
+    monkeypatch.setenv("IMAGE_PROVIDER", "openai")
+    with TestClient(api.create_app(trace=False)) as c:
+        run_id = start(c, approve="yes")
+        settle(c)
+        started = next(e for e in log_of(c, run_id) if e["type"] == "run_started")
+        assert started["media"] == "mock" and api.os.environ["MOCK_MEDIA"] == "1"
+        from shortsmith.media import images
+
+        assert images.source().provider == "mock" and images.price_per_image() == 0
+        assert "billed $0" in started["billing"]

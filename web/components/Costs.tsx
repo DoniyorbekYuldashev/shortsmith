@@ -12,6 +12,7 @@ export function Costs({ state, detail }: { state: RunState; detail?: RunDetail }
   const total = live ? spent(state) : (detail?.cost_usd ?? 0);
   const budget = state.settings?.budget_usd ?? detail?.settings?.budget_usd ?? null;
   const freeTier = state.settings?.free_tier ?? true;
+  const billing = state.settings?.billing;
   return (
     <section className="panel">
       <h2>Tokens and cost</h2>
@@ -38,7 +39,8 @@ export function Costs({ state, detail }: { state: RunState; detail?: RunDetail }
         </tbody>
       </table>
       <p className="small muted">
-        {freeTier ? <>List price: what these calls would cost on a paid tier. <strong>Billed: $0</strong> (Gemini free tier).</>
+        {billing ? <>List price: what these calls cost without free tiers. <strong>Billed</strong>: {billing}.</>
+          : freeTier ? <>List price: what these calls would cost on a paid tier. <strong>Billed: $0</strong> (Gemini free tier).</>
           : <>Paid tier: list price is what is billed.</>} Media: mock placeholders, free.
       </p>
       {budget !== null && (

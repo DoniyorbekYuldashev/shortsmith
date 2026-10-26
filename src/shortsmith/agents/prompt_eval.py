@@ -136,12 +136,12 @@ def main() -> None:
     out.mkdir(parents=True)
     ledger.CURRENT_RUN.set(out.name)  # every ledger line of the evaluation carries its folder's name
     traced = tracing.setup(EXPERIMENT)
-    print(f"prompt evaluation | {len(TOPICS)} topics | writer {llm.provider().default_model}, critic {critic.CRITIC_MODEL} | "
+    print(f"prompt evaluation | {len(TOPICS)} topics | writer {llm.model_for("writer")}, critic {critic.critic_model()} | "
           f"MLflow: {'on' if traced else 'off'}")
     results: list[TopicResult] = []
     with tracing.mlflow_run(f"prompt-eval {out.name}", params={"topics": len(TOPICS), "versions": "v1,v2",
-                                                                "writer_model": llm.provider().default_model,
-                                                                "critic_model": critic.CRITIC_MODEL}):
+                                                                "writer_model": llm.model_for("writer"),
+                                                                "critic_model": critic.critic_model()}):
         for n, (topic, language) in enumerate(TOPICS):
             print(f"\n== {topic} ({language})")
             found = llm.paced(lambda: researcher.research(topic, language))

@@ -18,6 +18,23 @@ import pytest
 from shortsmith.research import stores
 
 
+# Settings a test must not inherit from your .env (`uv run --env-file .env pytest` loads it): each test
+# that needs one sets it itself.
+PROVIDER_SETTINGS = (
+    "EMBEDDING_PROVIDER", "SHORTSMITH_EMBEDDING_MODEL", "IMAGE_PROVIDER", "OPENAI_IMAGE_MODEL", "OPENAI_IMAGE_QUALITY",
+    "OPENAI_IMAGE_SIZE", "FAL_IMAGE_MODEL", "OPENAI_REASONING_EFFORT", "OPENAI_DATA_SHARING",
+    "OPENAI_FREE_DAILY_TOKENS_MINI", "OPENAI_FREE_DAILY_TOKENS_LARGE", "OPENAI_FREE_LIMIT_ACTION",
+    "SHORTSMITH_RESEARCHER_MODEL", "SHORTSMITH_WRITER_MODEL", "SHORTSMITH_DIRECTOR_MODEL", "SHORTSMITH_REVISE_MODEL",
+    "SHORTSMITH_CRITIC_MODEL", "GEMINI_TIER",
+)
+
+
+@pytest.fixture(autouse=True)
+def no_provider_settings(monkeypatch):
+    for name in PROVIDER_SETTINGS:
+        monkeypatch.delenv(name, raising=False)
+
+
 def cosine_distance(a: list[float], b: list[float]) -> float:
     return 1 - sum(x * y for x, y in zip(a, b)) / (math.hypot(*a) * math.hypot(*b))
 

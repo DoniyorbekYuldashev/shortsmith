@@ -5,6 +5,7 @@ with `pd.read_json(path, lines=True)`. MLflow (Phase 6) only watches runs; this 
 what the `--budget` cap will check to stop one.
 """
 
+import re
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,17 +24,45 @@ CURRENT_RUN: ContextVar[str | None] = ContextVar("shortsmith_run", default=None)
 # the first real run).
 MEDIA_PRICES: dict[str, float] = {
     "fal-ai/flux/schnell": 0.003,
+    # Nano Banana (Google's Gemini image model) on fal: $0.0398 per image (CLAUDE.md, 2026-10-25).
+    "fal-ai/nano-banana": 0.0398,
     # One 5-second image-to-video hero clip (Phase 6). An ESTIMATE, never charged yet: PLAN §3
     # puts real models at ~$0.25-0.60 per 5-s clip. Check the live price before the first one.
     "fal-ai/kling-video/v2.1/standard/image-to-video": 0.30,
 }
 
+# OpenAI's image models are priced per TOKEN (USD per 1M): the prompt as text input, the picture as
+# image output. developers.openai.com/api/docs/pricing, checked 2026-10-26. A response carries its
+# own usage, so an image is priced from what it really used (media/images.py).
+IMAGE_TOKEN_PRICES: dict[str, dict[str, float]] = {
+    "gpt-image-2": {"text_input": 5.00, "image_input": 8.00, "output": 30.00},
+    "gpt-image-1-mini": {"text_input": 2.00, "image_input": 2.50, "output": 8.00},
+}
+# USD per 1024x1536 image by quality, for estimates before anything is made (and for a response
+# without usage). OpenAI's reference figures as quoted by third parties (its own calculator isn't
+# a page we can read): gpt-image-2 low ~$0.005, medium ~$0.041, high ~$0.165. gpt-image-1-mini:
+# OpenAI's published table. Other sizes are scaled by pixel count (images.price_per_image).
+IMAGE_PRICES: dict[str, dict[str, float]] = {
+    "gpt-image-2": {"low": 0.005, "medium": 0.041, "high": 0.165},
+    "gpt-image-1-mini": {"low": 0.006, "medium": 0.015, "high": 0.052},
+}
+
 # USD per 1,000,000 tokens. These are LIST prices, recorded even when data sharing makes a
-# call free, so budgets stay honest. Checked 2026-10-20 on aggregator sites; verify at
-# https://openai.com/api/pricing/ before trusting them.
+# call free, so budgets stay honest. OpenAI's: developers.openai.com/api/docs/pricing, checked
+# 2026-10-26 (standard tier, prompts under 272K tokens).
 PRICES: dict[str, dict[str, float]] = {
     "gpt-4.1-mini": {"input": 0.40, "cached_input": 0.10, "output": 1.60},
     "gpt-4o-mini": {"input": 0.15, "cached_input": 0.075, "output": 0.60},
+    "gpt-4.1": {"input": 2.00, "cached_input": 0.50, "output": 8.00},
+    "gpt-4.1-nano": {"input": 0.10, "cached_input": 0.025, "output": 0.40},
+    "gpt-5": {"input": 1.25, "cached_input": 0.125, "output": 10.00},
+    "gpt-5-mini": {"input": 0.25, "cached_input": 0.025, "output": 2.00},
+    "gpt-5-nano": {"input": 0.05, "cached_input": 0.005, "output": 0.40},
+    "gpt-5.1": {"input": 1.25, "cached_input": 0.125, "output": 10.00},
+    "gpt-5.4": {"input": 2.50, "cached_input": 0.25, "output": 15.00},
+    "gpt-5.4-mini": {"input": 0.75, "cached_input": 0.075, "output": 4.50},
+    "gpt-5.4-nano": {"input": 0.20, "cached_input": 0.02, "output": 1.25},
+    "gpt-6-luna": {"input": 0.10, "cached_input": 0.01, "output": 0.50},
     # Gemini paid-tier list prices, from ai.google.dev/gemini-api/docs/pricing (checked
     # 2026-10-21). Our key is on the free tier, so these calls really cost $0. Output
     # includes thinking tokens. 3.8 Flash doubles on 2027-01-01.
@@ -44,10 +73,21 @@ PRICES: dict[str, dict[str, float]] = {
     "gemini-3.6-flash": {"input": 0.75, "cached_input": 0.075, "output": 3.75},
     # Embeddings: input only (a vector is not generated text). gemini-embedding-2: $0.20 per 1M
     # text tokens on the paid tier, free on ours (same pricing page, checked 2026-10-23).
-    # text-embedding-3-small: OpenAI's list price, for when LLM_PROVIDER=openai again.
+    # text-embedding-3-small/-large: OpenAI's list prices (same page as the chat models).
     "gemini-embedding-2": {"input": 0.20, "cached_input": 0.20, "output": 0.0},
     "text-embedding-3-small": {"input": 0.02, "cached_input": 0.02, "output": 0.0},
+    "text-embedding-3-large": {"input": 0.13, "cached_input": 0.13, "output": 0.0},
 }
+
+_SNAPSHOT_DATE = re.compile(r"-\d{4}-\d{2}-\d{2}$")
+
+
+def base_model(model: str) -> str:
+    """The model a dated snapshot belongs to: "gpt-5-mini-2025-08-07" -> "gpt-5-mini".
+
+    Only a trailing date is cut, never a prefix match: "gpt-5" priced every name starting with it would
+    price gpt-5.5 (4x dearer) and gpt-5-pro (12x) as gpt-5 without a word. An unknown name must fail."""
+    return _SNAPSHOT_DATE.sub("", model)
 
 
 class LedgerEntry(BaseModel):
@@ -70,14 +110,13 @@ class LedgerEntry(BaseModel):
 def cost_usd(model: str, prompt_tokens: int, completion_tokens: int, cached_tokens: int = 0) -> float:
     """The list price of one call, in USD.
 
-    The API reports dated versions ("gpt-4.1-mini-2025-04-14"), so the price comes from the
-    longest PRICES key the name starts with. An unknown model raises instead of costing $0:
-    a silent $0 would let a run blow straight through the --budget cap.
+    The API reports dated versions ("gpt-4.1-mini-2025-04-14"), so the price is looked up by
+    base_model(). An unknown model raises instead of costing $0: a silent $0 would let a run
+    blow straight through the --budget cap.
     """
-    matches = [name for name in PRICES if model.startswith(name)]
-    if not matches:
+    price = PRICES.get(base_model(model))
+    if price is None:
         raise ValueError(f"No price for model {model!r}: add it to PRICES in ledger.py")
-    price = PRICES[max(matches, key=len)]
 
     uncached = prompt_tokens - cached_tokens  # cached tokens are part of the prompt
     return (

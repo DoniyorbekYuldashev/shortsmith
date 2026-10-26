@@ -266,7 +266,7 @@ def main(argv: list[str] | None = None) -> None:
     # notes, E2). Line buffering sends every printed line to fd 1 at once: to stderr.
     sys.stdout.reconfigure(line_buffering=True)  # type: ignore[union-attr]
     log.info("shortsmith MCP server | root %s | images: %s | LLM provider: %s (key %s) | vector store: %s | ffmpeg: %s%s",
-             Path.cwd(), "placeholders (MOCK_MEDIA)" if images.mock_media() else "FLUX, PAID",
+             Path.cwd(), "placeholders (MOCK_MEDIA)" if images.mock_media() else f"{images.source().label}, PAID",
              os.environ.get("LLM_PROVIDER", "openai"), "set" if os.environ.get(llm.provider().key_env) else "missing",
              os.environ.get("VECTOR_STORE", "pgvector"),  # opened on the first retrieve_hooks call, not here
              shutil.which("ffmpeg") or "NOT FOUND on PATH: render_video will fail",

@@ -1,7 +1,7 @@
 """budget.py and costs.py: estimates before a node runs, the stop rule, and the ledger grouped for `cost`.
 Hand-made ledger lines and states; no LLM, no graph run."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace as NS
 
@@ -27,6 +27,9 @@ def gemini(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "gemini")
     monkeypatch.setenv("MOCK_MEDIA", "1")
     monkeypatch.delenv("GEMINI_TIER", raising=False)
+    for name in ("IMAGE_PROVIDER", "OPENAI_IMAGE_MODEL", "OPENAI_IMAGE_QUALITY", "OPENAI_IMAGE_SIZE", "FAL_IMAGE_MODEL",
+                 "EMBEDDING_PROVIDER", "SHORTSMITH_EMBEDDING_MODEL", *costs.ALLOWANCE_SETTINGS):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(budget.critic, "CRITIC_MODEL", "gemini-3.8-flash")
 
 
@@ -83,8 +86,11 @@ def test_the_producer_is_free_with_mock_media_and_priced_with_real_media(tmp_pat
     assert budget.estimate("producer", s, []).usd == 0  # placeholders: 6 images, 6 voices, all free
     monkeypatch.setenv("MOCK_MEDIA", "0")
     est = budget.estimate("producer", s, [])
-    assert est.usd == pytest.approx(6 * 0.003)  # the hero scene is still Ken Burns in this plan: no clip
-    assert "images 1, 2, 3, 4, 5, 6" in est.basis and "real media" in est.basis
+    assert est.usd == pytest.approx(6 * 0.005)  # gpt-image-2, low; the hero scene is still Ken Burns here: no clip
+    assert "images 1, 2, 3, 4, 5, 6" in est.basis and "real media: images openai gpt-image-2 (low, 1024x1536)" in est.basis
+    monkeypatch.setenv("IMAGE_PROVIDER", "fal")
+    monkeypatch.setenv("FAL_IMAGE_MODEL", "fal-ai/flux/schnell")
+    assert budget.estimate("producer", s, []).usd == pytest.approx(6 * 0.003)
 
 
 # --- the stop rule -------------------------------------------------------------------------------------------
@@ -123,7 +129,9 @@ def test_what_is_left_of_a_run(tmp_path):
     assert budget.nodes_left(later) == ["critic", "critic", "revise"]
 
 
-def test_a_whole_run_estimate_for_the_real_question():
+def test_a_whole_run_estimate_for_the_real_question(monkeypatch):
+    monkeypatch.setenv("IMAGE_PROVIDER", "fal")
+    monkeypatch.setenv("FAL_IMAGE_MODEL", "fal-ai/flux/schnell")
     est = budget.run_estimate(research=False, hero_clips=1, max_rounds=2, real=True, history=[])
     assert (est.images, est.images_usd, est.clip_usd) == (6, pytest.approx(0.018), 0.30)
     assert est.revision_images == 6 and est.most_usd > est.first_pass_usd > 0.318
@@ -195,3 +203,97 @@ def test_status_of_a_snapshot():
     assert crashed.label == "crashed at critic" and "DailyQuotaError" in crashed.detail
     killed = runs.status_of(snap(("producer",)))
     assert killed.label == "crashed at producer" and "without an error" in killed.detail
+
+
+# --- OpenAI's free daily tokens (data sharing) ---------------------------------------------------------------------
+
+
+def sharing(monkeypatch, mini: int = 1000, large: int = 500, action: str = "warn") -> None:
+    monkeypatch.setenv("OPENAI_DATA_SHARING", "1")
+    monkeypatch.setenv("OPENAI_FREE_DAILY_TOKENS_MINI", str(mini))
+    monkeypatch.setenv("OPENAI_FREE_DAILY_TOKENS_LARGE", str(large))
+    monkeypatch.setenv("OPENAI_FREE_LIMIT_ACTION", action)
+
+
+def test_openai_text_is_free_within_the_days_allowance_and_billed_beyond_it(monkeypatch):
+    sharing(monkeypatch)  # 1,000 mini tokens a day
+    first = line("writer", 0.004, model="gpt-5-mini-2025-08-07", ts=NOW, p=400, c=200)  # 600: free
+    second = line("director", 0.006, model="gpt-5-mini-2025-08-07", ts=NOW + timedelta(minutes=1), p=500, c=300)  # 800: 400 free
+    third = line("revise", 0.002, model="gpt-5-mini", ts=NOW + timedelta(minutes=2), p=100, c=100)  # all beyond
+    embed = line("rag", 0.0001, model="text-embedding-3-small", ts=NOW, p=50)  # never free
+    billing = costs.Billing([third, embed, second, first])  # any order: billing walks them by time
+    assert billing(first) == 0
+    assert billing(second) == pytest.approx(0.006 * 400 / 800)  # the share of its tokens past the line
+    assert (billing(third), billing(embed)) == (0.002, 0.0001)
+
+
+def test_the_allowance_is_per_group_and_refreshes_at_midnight_utc(monkeypatch):
+    sharing(monkeypatch, mini=1000, large=500)
+    late = datetime(2026, 10, 26, 23, 59, tzinfo=timezone.utc)
+    lines = [line("writer", 0.01, model="gpt-5-mini", ts=late, p=1000),  # uses up the mini group
+             line("critic", 0.02, model="gpt-5.1-2025-11-13", ts=late, p=500),  # the large group is separate
+             line("writer", 0.01, model="gpt-4.1-mini", ts=late + timedelta(minutes=2), p=1000)]  # 00:01 UTC: a new day
+    billing = costs.Billing(lines)
+    assert [billing(e) for e in lines] == [0, 0, 0]
+    assert costs.allowance_day(late + timedelta(minutes=2)) == date(2026, 10, 27)
+    tashkent = timezone(timedelta(hours=5))  # 04:59 in Tashkent is still the 26th's allowance in UTC
+    assert costs.allowance_day(datetime(2026, 10, 27, 4, 59, tzinfo=tashkent)) == date(2026, 10, 26)
+
+
+def test_without_data_sharing_every_openai_call_is_billed_at_list_price(monkeypatch):
+    lines = [line("writer", 0.01, model="gpt-5-mini", p=100)]
+    assert costs.Billing(lines)(lines[0]) == 0.01 and costs.allowance().data_sharing is False
+    assert "every call is billed at list price" in costs.billing_note() or costs.billing_note().startswith("Gemini")
+
+
+def test_models_outside_the_groups_are_never_free(monkeypatch):
+    sharing(monkeypatch)
+    for model in ("gpt-5.5", "gpt-image-2", "text-embedding-3-small", "gemini-3.8-flash"):
+        assert costs.free_group(model) is None
+    assert (costs.free_group("gpt-5-mini-2025-08-07"), costs.free_group("gpt-5.1")) == ("mini", "large")
+
+
+def test_the_allowance_view_counts_today_per_group(monkeypatch):
+    sharing(monkeypatch, mini=1000, large=500)
+    lines = [line("writer", 0.004, model="gpt-5-mini", p=700, c=500),  # 1,200 > 1,000: 200 of them billed
+             line("critic", 0.01, model="gpt-5.1", p=300),
+             line("writer", 0.004, model="gpt-5-mini", ts=NOW - timedelta(days=1), p=900)]  # yesterday
+    a = costs.report(lines, now=NOW, quota_log=Path("no-such-quota.jsonl")).quotas.openai
+    groups = {g.group: g for g in a.groups}
+    assert a.data_sharing and a.day_start == datetime(2026, 10, 24, tzinfo=timezone.utc)
+    assert (groups["mini"].tokens, groups["mini"].left, groups["mini"].models) == (1200, 0, ["gpt-5-mini"])
+    assert groups["mini"].billed_usd == pytest.approx(0.004 * 200 / 1200)
+    assert (groups["large"].tokens, groups["large"].left, groups["large"].billed_usd) == (300, 200, 0)
+    assert any("can't be asked" in note for note in a.notes)
+
+
+def test_the_report_bills_openai_within_the_allowance_as_zero(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    sharing(monkeypatch, mini=10_000)
+    lines = [line("writer", 0.004, model="gpt-5-mini", run_id="r", p=800, c=2000)]
+    r = costs.report(lines, now=NOW, quota_log=Path("no-such-quota.jsonl"))
+    assert (r.total.list_usd, r.total.billed_usd) == (0.004, 0) and "data sharing" in r.billing
+
+
+def test_a_node_that_would_pass_the_allowance_warns_or_stops(monkeypatch, caplog):
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setattr(budget.critic, "CRITIC_MODEL", None)
+    sharing(monkeypatch, mini=3000, large=10_000)
+    history = [line("writer", 0.001, model="gpt-5-mini", p=2000, c=500, ts=NOW)]  # 2,500 of 3,000 used today
+    assert budget.allowance_check("director", history, now=NOW) is not None  # ~1,250 more (first-call guess)
+    assert "past today's free OpenAI tokens" in caplog.text
+    assert budget.allowance_check("critic", history, now=NOW) is None  # the large group has room for ~6,000
+    assert budget.allowance_check("editor", history, now=NOW) is None  # no LLM call
+    sharing(monkeypatch, mini=3000, large=10_000, action="stop")
+    with pytest.raises(budget.FreeAllowanceReached, match="mini group: 2,500 used of 3,000"):
+        budget.allowance_check("director", history, now=NOW)
+    monkeypatch.setenv("OPENAI_DATA_SHARING", "0")
+    assert budget.allowance_check("director", history, now=NOW) is None  # off: list price is billed anyway
+
+
+def test_a_whole_run_estimate_with_openai_images(monkeypatch):
+    est = budget.run_estimate(research=False, hero_clips=0, max_rounds=1, real=True, history=[])
+    assert est.images_usd == pytest.approx(6 * 0.005) and est.revision_usd == pytest.approx(3 * 0.005)
+    assert est.image_source.startswith("openai gpt-image-2 (low, 1024x1536)")
+    monkeypatch.setenv("OPENAI_IMAGE_QUALITY", "medium")
+    assert budget.run_estimate(False, 0, 0, True, []).images_usd == pytest.approx(6 * 0.041)

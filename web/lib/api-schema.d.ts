@@ -236,6 +236,46 @@ export interface components {
             /** Events */
             events: string;
         };
+        /**
+         * Allowance
+         * @description OpenAI's complimentary daily tokens, as the settings describe them.
+         */
+        Allowance: {
+            /** Data Sharing */
+            data_sharing: boolean;
+            /** Daily Tokens */
+            daily_tokens: {
+                [key: string]: number;
+            };
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "warn" | "stop";
+            /** Configured */
+            configured: {
+                [key: string]: boolean;
+            };
+        };
+        /** AllowanceToday */
+        AllowanceToday: {
+            /** Data Sharing */
+            data_sharing: boolean;
+            /**
+             * Day Start
+             * Format: date-time
+             */
+            day_start: string;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "warn" | "stop";
+            /** Groups */
+            groups: components["schemas"]["GroupToday"][];
+            /** Notes */
+            notes: string[];
+        };
         /** Answer */
         Answer: {
             /**
@@ -346,6 +386,8 @@ export interface components {
             run: string | null;
             /** Free Tier */
             free_tier: boolean;
+            /** Billing */
+            billing: string;
             total: components["schemas"]["CostRow"];
             /** By Day */
             by_day: components["schemas"]["CostRow"][];
@@ -543,6 +585,24 @@ export interface components {
             /** Saved */
             saved: string[];
         };
+        /**
+         * GroupToday
+         * @description One OpenAI data-sharing group since 00:00 UTC, by our ledger.
+         */
+        GroupToday: {
+            /** Group */
+            group: string;
+            /** Models */
+            models: string[];
+            /** Tokens */
+            tokens: number;
+            /** Daily Tokens */
+            daily_tokens: number;
+            /** Left */
+            left: number;
+            /** Billed Usd */
+            billed_usd: number;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -571,6 +631,10 @@ export interface components {
             media: "mock";
             /** Free Tier */
             free_tier: boolean;
+            /** Billing */
+            billing: string;
+            setup: components["schemas"]["Setup"] | null;
+            allowance: components["schemas"]["AllowanceToday"] | null;
             /** Ffmpeg */
             ffmpeg: boolean;
             /** Research Ready */
@@ -808,6 +872,7 @@ export interface components {
             day_start: string;
             /** Gemini */
             gemini: components["schemas"]["ModelToday"][];
+            openai: components["schemas"]["AllowanceToday"];
             /** Youtube Units */
             youtube_units: number;
             /** Youtube Cap */
@@ -901,6 +966,27 @@ export interface components {
             visual_before: string;
             /** Visual After */
             visual_after: string;
+        };
+        /** Role */
+        Role: {
+            /** Role */
+            role: string;
+            /** Provider */
+            provider: string;
+            /** Model */
+            model: string;
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+            /** Key Env */
+            key_env?: string | null;
+            /**
+             * Key Set
+             * @default true
+             */
+            key_set: boolean;
         };
         /**
          * RunDetail
@@ -1018,6 +1104,11 @@ export interface components {
             critic_model: string;
             /** Free Tier */
             free_tier: boolean;
+            /**
+             * Billing
+             * @default
+             */
+            billing: string;
         };
         /** RunStatus */
         RunStatus: {
@@ -1165,6 +1256,22 @@ export interface components {
             hero_clips: number;
             /** Media */
             media: string;
+        };
+        /** Setup */
+        Setup: {
+            /** Llm Provider */
+            llm_provider: string;
+            /** Roles */
+            roles: components["schemas"]["Role"][];
+            /** Keys */
+            keys: {
+                [key: string]: boolean;
+            };
+            /** Mock Media */
+            mock_media: boolean;
+            allowance: components["schemas"]["Allowance"];
+            /** Billing */
+            billing: string;
         };
         /**
          * StartRun

@@ -60,7 +60,7 @@ def fakes(monkeypatch, tmp_path):
     monkeypatch.setenv("LLM_PROVIDER", "gemini")
     monkeypatch.setattr(researcher.youtube, "search_trends", search)
     monkeypatch.setattr(researcher.rag, "retrieve", retrieve)
-    monkeypatch.setattr(llm, "_client", lambda: NS(chat=NS(completions=NS(create=create))))
+    monkeypatch.setattr(llm, "_client", lambda *_: NS(chat=NS(completions=NS(create=create))))
     monkeypatch.setattr(llm.ledger, "record", lambda entry, path: seen.setdefault("ledger", []).append(entry))
     return seen
 

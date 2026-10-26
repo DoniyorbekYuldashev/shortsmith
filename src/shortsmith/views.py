@@ -16,13 +16,16 @@ from shortsmith.console import STATUS_STYLE, Ui, usd
 
 def estimate_lines(est: Any) -> list[str]:
     """The --real question: what would be paid for, in list price."""
-    lines = [f"images: {est.images} x {usd(est.images_usd / est.images if est.images else 0)} = {usd(est.images_usd)}"]
+    from shortsmith import costs
+
+    source = f" ({est.image_source})" if est.image_source else ""
+    lines = [f"images: {est.images} x {usd(est.images_usd / est.images if est.images else 0)} = {usd(est.images_usd)}{source}"]
     if est.clips:
         lines.append(f"hero clip: ~{usd(est.clip_usd, 2)} (asked again just before it is made)")
     if est.revision_images:
         lines.append(f"critic revisions: up to {est.revision_images} more images = {usd(est.revision_usd)} "
                      f"(+ a new clip if the hero picture changes, asked again)")
-    lines.append(f"LLM: ~{usd(est.llm_usd)} list price (billed $0 on the Gemini free tier)")
+    lines.append(f"LLM: ~{usd(est.llm_usd)} list price ({costs.billing_note()})")
     lines.append(f"total: ~{usd(est.first_pass_usd)} for the first pass, ~{usd(est.most_usd)} at most")
     return lines
 
@@ -45,11 +48,13 @@ def header(ui: Ui, s: Any, resumed: str | None = None) -> None:
     if s.via_mcp:
         extras.append("tools over MCP")
     ui.say(Text(f"{first} | {' | '.join(extras)}", style="bold"))
-    media = "REAL images on fal.ai (paid)" if s.media == "real" else "mock placeholders (free)"
-    ui.say(f"media: {media} | LLM: {llm.provider().default_model}, critic {critic.CRITIC_MODEL}")
+    from shortsmith.media import images
+
+    media = f"REAL images, {images.source(real=True).label} (paid)" if s.media == "real" else "mock placeholders (free)"
+    ui.say(f"media: {media} | LLM: {llm.model_for('writer')}, critic {critic.critic_model()}")
     if s.budget_usd is not None:
-        ui.say(f"budget: {usd(s.budget_usd)} for the whole run, in LIST price (the Gemini free tier bills $0; "
-               "the budget counts what it would cost on a paid tier)")
+        ui.say(f"budget: {usd(s.budget_usd)} for the whole run, in LIST price (free tiers and free daily tokens bill $0; "
+               "the budget counts what it would cost without them)")
 
 
 def node_table(ui: Ui, s: Any, lines: list, estimates: dict[str, float]) -> None:
@@ -66,13 +71,14 @@ def node_table(ui: Ui, s: Any, lines: list, estimates: dict[str, float]) -> None
     ui.print(table)
 
 
-def money(ui: Ui, s: Any, lines: list, new: int) -> None:
-    """The run's total, list price next to billed, and how much of its budget it used."""
+def money(ui: Ui, s: Any, lines: list, new: int, history: list | None = None) -> None:
+    """The run's total, list price next to billed, and how much of its budget it used. `history`: the whole
+    ledger (an OpenAI call's billing depends on that day's earlier calls)."""
     from shortsmith import costs
 
-    list_usd, billed = sum(e.cost_usd for e in lines), sum(costs.billed_usd(e) for e in lines)
+    list_usd, billed = sum(e.cost_usd for e in lines), costs.Billing(history or lines).total(lines)
     tokens = sum(e.prompt_tokens + e.completion_tokens + e.reasoning_tokens for e in lines)
-    note = " (Gemini free tier)" if billed == 0 and list_usd > 0 else ""
+    note = " (free tier / free daily tokens)" if billed == 0 and list_usd > 0 else ""
     kv(ui, "cost", f"{usd(list_usd)} list price | {usd(billed)} billed{note} | {len(lines)} calls ({new} in this "
                    f"session) | {tokens:,} tokens")
     if s.budget_usd is not None:
@@ -191,8 +197,7 @@ def cost_report(ui: Ui, report: Any, top: int) -> None:
     t = report.total
     kv(ui, "total", f"{t.calls} calls | {t.prompt_tokens + t.completion_tokens:,} tokens | {usd(t.list_usd)} list price | "
                     f"{usd(t.billed_usd)} billed")
-    kv(ui, "billed", "Gemini calls are $0 on the free tier (GEMINI_TIER=free, the default); OpenAI and fal.ai lines are "
-                     "billed at list price." if report.free_tier else "GEMINI_TIER=paid: Gemini calls count at list price.")
+    kv(ui, "billed", report.billing)
 
     q = report.quotas
     quota = ui.table("model", "requests", "free daily limit", "left (by our count)",
@@ -205,4 +210,17 @@ def cost_report(ui: Ui, report: Any, top: int) -> None:
     kv(ui, "YouTube", f"{q.youtube_units:,} units today (our cap {q.youtube_cap:,}; Google's free quota {q.youtube_limit:,}; "
                       "a live search is 101 units, a cached one 0)")
     for note in q.notes:
+        kv(ui, "note", note)
+
+    o = q.openai
+    free = ui.table("group", "models used today", "tokens", "free a day", "left (by our count)", "billed",
+                    title=f"OpenAI free daily tokens (data sharing {'on' if o.data_sharing else 'OFF'}; since 00:00 UTC)",
+                    right=("tokens", "free a day", "left (by our count)", "billed"))
+    for g in o.groups:
+        free.add_row(g.group, ", ".join(g.models) or "-", f"{g.tokens:,}", f"{g.daily_tokens:,}", f"{g.left:,}",
+                     usd(g.billed_usd))
+    ui.print(free)
+    kv(ui, "past it", f"OPENAI_FREE_LIMIT_ACTION={o.action}: "
+                      + ("a run stops before a node that would pass it" if o.action == "stop" else "a run warns and goes on"))
+    for note in o.notes:
         kv(ui, "note", note)

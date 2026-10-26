@@ -173,7 +173,7 @@ class KnowledgeBase:
         embed: Embed | None = None,
     ):
         self.data_dir = data_dir
-        self.model = model or llm.provider().embedding_model
+        self.model = model or llm.embedding_model()
         self.dimensions = dimensions
         self.embed: Embed = embed or (lambda texts: llm.embed(texts, self.model, dimensions, step="rag"))
         self.store: stores.VectorStore = (store if store is not None else

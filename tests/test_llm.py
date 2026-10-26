@@ -55,7 +55,7 @@ def test_chat_returns_usage_and_records_it(monkeypatch, tmp_path):
         usage=NS(prompt_tokens=1000, completion_tokens=500, prompt_tokens_details=NS(cached_tokens=200)),
     )
     monkeypatch.setenv("LLM_PROVIDER", "openai")  # tests must not depend on your .env
-    monkeypatch.setattr(llm, "_client", lambda: _fake_client(response))
+    monkeypatch.setattr(llm, "_client", lambda *_: _fake_client(response))
     path = tmp_path / "ledger.jsonl"
 
     result = llm.chat(MESSAGES, step="writer", ledger_path=path)
@@ -68,7 +68,7 @@ def test_chat_returns_usage_and_records_it(monkeypatch, tmp_path):
 
 
 def test_unpriced_model_fails_before_any_paid_call(monkeypatch, tmp_path):
-    def must_not_be_called():
+    def must_not_be_called(*_):
         raise AssertionError("the API was called for a model without a price")
 
     monkeypatch.setattr(llm, "_client", must_not_be_called)
@@ -91,7 +91,7 @@ def test_gemini_model_prefix_is_stripped_before_pricing(monkeypatch, tmp_path):
         choices=[NS(message=_message("Salom!"))],
         usage=NS(prompt_tokens=1_000_000, completion_tokens=0, prompt_tokens_details=None),
     )
-    monkeypatch.setattr(llm, "_client", lambda: _fake_client(response))
+    monkeypatch.setattr(llm, "_client", lambda *_: _fake_client(response))
 
     result = llm.chat(MESSAGES, ledger_path=tmp_path / "ledger.jsonl")
 
@@ -102,20 +102,20 @@ def test_gemini_model_prefix_is_stripped_before_pricing(monkeypatch, tmp_path):
 def test_temperature_is_sent_only_when_set(monkeypatch, tmp_path):
     monkeypatch.setenv("LLM_PROVIDER", "openai")
     seen: dict = {}
-    monkeypatch.setattr(llm, "_client", lambda: _fake_client(_response("hi"), seen))
+    monkeypatch.setattr(llm, "_client", lambda *_: _fake_client(_response("hi"), seen))
 
-    llm.chat(MESSAGES, temperature=0.0, ledger_path=tmp_path / "ledger.jsonl")
+    llm.chat(MESSAGES, model="gpt-4.1-mini", temperature=0.0, ledger_path=tmp_path / "ledger.jsonl")
     assert seen["temperature"] == 0.0  # 0.0 is falsy: a sloppy `if temperature:` would drop it
 
     seen.clear()
-    llm.chat(MESSAGES, ledger_path=tmp_path / "ledger.jsonl")
+    llm.chat(MESSAGES, model="gpt-4.1-mini", ledger_path=tmp_path / "ledger.jsonl")
     assert "temperature" not in seen  # not set = the provider's default
 
 
 def test_chat_json_sends_the_schema_and_parses_the_answer(monkeypatch, tmp_path):
     monkeypatch.setenv("LLM_PROVIDER", "openai")
     seen: dict = {}
-    monkeypatch.setattr(llm, "_client", lambda: _fake_client(_response('{"x": 1, "y": 2}'), seen))
+    monkeypatch.setattr(llm, "_client", lambda *_: _fake_client(_response('{"x": 1, "y": 2}'), seen))
 
     point, result = llm.chat_json(MESSAGES, Point, ledger_path=tmp_path / "ledger.jsonl")
 
@@ -127,7 +127,7 @@ def test_chat_json_sends_the_schema_and_parses_the_answer(monkeypatch, tmp_path)
 
 def test_chat_json_records_the_call_even_when_validation_fails(monkeypatch, tmp_path):
     monkeypatch.setenv("LLM_PROVIDER", "openai")
-    monkeypatch.setattr(llm, "_client", lambda: _fake_client(_response('{"x": "oops"}')))
+    monkeypatch.setattr(llm, "_client", lambda *_: _fake_client(_response('{"x": "oops"}')))
     path = tmp_path / "ledger.jsonl"
 
     with pytest.raises(ValidationError):
@@ -150,7 +150,7 @@ def test_chat_tools_sends_the_schemas_and_keeps_the_message_as_returned(monkeypa
     response = NS(model="gemini-3.5-flash-lite", choices=[NS(message=message)],
                   usage=NS(prompt_tokens=287, completion_tokens=28, prompt_tokens_details=None))
     seen: dict = {}
-    monkeypatch.setattr(llm, "_client", lambda: _fake_client(response, seen))
+    monkeypatch.setattr(llm, "_client", lambda *_: _fake_client(response, seen))
     schemas = [{"type": "function", "function": {"name": "generate_image", "parameters": {"type": "object"}}}]
     path = tmp_path / "ledger.jsonl"
 
@@ -190,7 +190,7 @@ def _embeddings(vectors, model="gemini-embedding-2", usage=None, indexed=False):
 def test_embed_estimates_tokens_when_the_provider_sends_no_usage(monkeypatch, tmp_path):
     monkeypatch.setenv("LLM_PROVIDER", "gemini")
     seen: list = []
-    monkeypatch.setattr(llm, "_client", lambda: _embedding_client([_embeddings([[0.1, 0.2], [0.3, 0.4]])], seen))
+    monkeypatch.setattr(llm, "_client", lambda *_: _embedding_client([_embeddings([[0.1, 0.2], [0.3, 0.4]])], seen))
     path = tmp_path / "ledger.jsonl"
 
     result = llm.embed(["hello world", "salom dunyo"], dimensions=2, ledger_path=path)
@@ -208,7 +208,7 @@ def test_embed_uses_the_providers_usage_and_index_when_it_has_them(monkeypatch, 
     monkeypatch.setenv("LLM_PROVIDER", "openai")
     shuffled = _embeddings([[1.0], [2.0]], model="text-embedding-3-small", usage=NS(prompt_tokens=7), indexed=True)
     shuffled.data.reverse()  # OpenAI numbers the vectors; the order of the list doesn't matter then
-    monkeypatch.setattr(llm, "_client", lambda: _embedding_client([shuffled]))
+    monkeypatch.setattr(llm, "_client", lambda *_: _embedding_client([shuffled]))
 
     result = llm.embed(["a", "b"], dimensions=1, ledger_path=tmp_path / "ledger.jsonl")
 
@@ -221,7 +221,7 @@ def test_embed_splits_big_inputs_into_batches_and_records_each_request(monkeypat
     monkeypatch.setattr(llm, "EMBED_BATCH", 2)
     seen: list = []
     client = _embedding_client([_embeddings([[1.0], [2.0]]), _embeddings([[3.0]])], seen)  # one client: one queue of answers
-    monkeypatch.setattr(llm, "_client", lambda: client)
+    monkeypatch.setattr(llm, "_client", lambda *_: client)
     path = tmp_path / "ledger.jsonl"
 
     result = llm.embed(["a", "b", "c"], dimensions=1, ledger_path=path)
@@ -233,7 +233,7 @@ def test_embed_splits_big_inputs_into_batches_and_records_each_request(monkeypat
 
 def test_embed_rejects_vectors_of_the_wrong_size(monkeypatch, tmp_path):
     monkeypatch.setenv("LLM_PROVIDER", "gemini")
-    monkeypatch.setattr(llm, "_client", lambda: _embedding_client([_embeddings([[1.0, 2.0, 3.0]])]))
+    monkeypatch.setattr(llm, "_client", lambda *_: _embedding_client([_embeddings([[1.0, 2.0, 3.0]])]))
     path = tmp_path / "ledger.jsonl"
     with pytest.raises(ValueError, match="asked for 1 vectors of 2 numbers"):
         llm.embed(["a"], dimensions=2, ledger_path=path)
@@ -247,7 +247,7 @@ def test_embed_waits_as_long_as_a_429_says_and_tries_again(monkeypatch, tmp_path
         "Quota exceeded for metric: embed_content_free_tier_requests, limit: 100. Please retry in 12.75s.",
         response=httpx.Response(429, request=request), body=None)
     client = _embedding_client([limited, _embeddings([[1.0]])])
-    monkeypatch.setattr(llm, "_client", lambda: client)
+    monkeypatch.setattr(llm, "_client", lambda *_: client)
     waited: list[float] = []
     monkeypatch.setattr(llm.time, "sleep", waited.append)
 
@@ -258,7 +258,7 @@ def test_embed_waits_as_long_as_a_429_says_and_tries_again(monkeypatch, tmp_path
 
 
 def test_embed_refuses_an_unpriced_model_before_any_call(monkeypatch, tmp_path):
-    monkeypatch.setattr(llm, "_client", lambda: pytest.fail("called the API for a model without a price"))
+    monkeypatch.setattr(llm, "_client", lambda *_: pytest.fail("called the API for a model without a price"))
     with pytest.raises(ValueError, match="No price"):
         llm.embed(["a"], model="mystery-embedding", ledger_path=tmp_path / "ledger.jsonl")
 
@@ -290,7 +290,7 @@ def test_write_script_puts_the_research_notes_into_the_user_message(monkeypatch,
     scenes = [{"idx": i, "narration": " ".join(["word"] * 13), "visual_prompt": "p", "duration_s": 5, "motion": "zoom_in"}
               for i in range(1, 7)]
     answer = json.dumps({"title": "t", "hook": "h", "scenes": scenes, "cta": "c", "language": "en"})
-    monkeypatch.setattr(llm, "_client", lambda: _fake_client(_response(answer, "gemini-3.5-flash-lite"), seen))
+    monkeypatch.setattr(llm, "_client", lambda *_: _fake_client(_response(answer, "gemini-3.5-flash-lite"), seen))
     monkeypatch.setattr(llm, "DEFAULT_LEDGER", tmp_path / "ledger.jsonl")
     monkeypatch.setattr(llm.ledger, "record", lambda entry, path: None)
 
@@ -309,7 +309,7 @@ def test_write_script_puts_the_research_notes_into_the_user_message(monkeypatch,
 def test_chat_schema_sends_the_schema_and_leaves_validation_to_the_caller(monkeypatch, tmp_path):
     seen = {}
     monkeypatch.setenv("LLM_PROVIDER", "openai")
-    monkeypatch.setattr(llm, "_client", lambda: _fake_client(_response('{"x": "not a number"}'), seen))
+    monkeypatch.setattr(llm, "_client", lambda *_: _fake_client(_response('{"x": "not a number"}'), seen))
     result = llm.chat_schema(MESSAGES, Point, step="writer", ledger_path=tmp_path / "ledger.jsonl")
     assert result.text == '{"x": "not a number"}'  # chat_json would raise here; the caller decides
     assert seen["response_format"]["json_schema"]["name"] == "Point"
@@ -329,6 +329,7 @@ def test_paced_spaces_requests_and_waits_out_a_429(monkeypatch):
             raise answer
         return answer
 
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")  # the spacing is Gemini's free tier's; OpenAI needs none
     monkeypatch.setattr(llm, "_last_request", float("-inf"))
     assert llm.paced(call, sleep=waits.append) == "ok"
     assert waits[0] == 13.75  # the delay the error named, + 1 s
@@ -368,7 +369,7 @@ def test_thinking_tokens_hidden_in_total_tokens_are_priced_as_output(monkeypatch
     response = NS(model="gemini-3.6-flash", choices=[NS(message=_message("{}"))],
                   usage=NS(prompt_tokens=5444, completion_tokens=123, total_tokens=6184, prompt_tokens_details=None))
     monkeypatch.setenv("LLM_PROVIDER", "gemini")
-    monkeypatch.setattr(llm, "_client", lambda: _fake_client(response))
+    monkeypatch.setattr(llm, "_client", lambda *_: _fake_client(response))
     result = llm.chat(MESSAGES, step="critic", ledger_path=tmp_path / "ledger.jsonl")
 
     assert result.reasoning_tokens == 617 and result.total_tokens == 6184
@@ -381,7 +382,7 @@ def test_openai_counts_reasoning_inside_completion_tokens_so_nothing_is_added(mo
     response = NS(model="gpt-4.1-mini", choices=[NS(message=_message("hi"))],
                   usage=NS(prompt_tokens=100, completion_tokens=50, total_tokens=150, prompt_tokens_details=None))
     monkeypatch.setenv("LLM_PROVIDER", "openai")
-    monkeypatch.setattr(llm, "_client", lambda: _fake_client(response))
+    monkeypatch.setattr(llm, "_client", lambda *_: _fake_client(response))
     assert llm.chat(MESSAGES, ledger_path=tmp_path / "ledger.jsonl").reasoning_tokens == 0
 
 
@@ -397,3 +398,161 @@ def test_a_daily_quota_429_is_not_retried():
     with pytest.raises(llm.DailyQuotaError, match="daily request quota"):
         llm.paced(call, sleep=lambda s: None)
     assert len(calls) == 1
+
+
+# --- providers per role, OpenAI's request rules (the OpenAI switch, 2026-10-26) --------------------------------
+
+
+def test_each_role_uses_the_providers_default_unless_set_apart(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    assert [llm.model_for(step) for step in ("researcher", "writer", "writer-pick", "director", "revise")] == ["gpt-5-mini"] * 5
+    assert llm.model_for("critic") == "gpt-5.1" and llm.model_for("adhoc") == "gpt-5-mini"
+    monkeypatch.setenv("SHORTSMITH_WRITER_MODEL", "gpt-4.1-mini")
+    assert (llm.model_for("writer"), llm.model_for("writer-pick"), llm.model_for("director")) == (
+        "gpt-4.1-mini", "gpt-4.1-mini", "gpt-5-mini")
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    assert (llm.model_for("director"), llm.model_for("critic")) == ("gemini-3.5-flash-lite", "gemini-3.8-flash")
+
+
+def test_a_model_goes_to_its_own_providers_client(monkeypatch, tmp_path):
+    """A Gemini critic while LLM_PROVIDER=openai: the request must reach Google's address with Google's key."""
+    response = _response("{}", model="gemini-3.8-flash")
+    used: list[str | None] = []
+
+    def client(name=None):
+        used.append(name)
+        return _fake_client(response)
+
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("SHORTSMITH_CRITIC_MODEL", "gemini-3.8-flash")
+    monkeypatch.setattr(llm, "_client", client)
+    llm.chat(MESSAGES, step="critic", ledger_path=tmp_path / "ledger.jsonl")
+    assert used == ["gemini"] and llm.provider_of("models/gemini-embedding-2") == "gemini"
+    assert llm.provider_of("gpt-5-mini") == llm.provider_of("text-embedding-3-small") == "openai"
+
+
+def test_reasoning_effort_goes_only_to_openais_reasoning_models(monkeypatch, tmp_path):
+    seen: dict = {}
+    monkeypatch.setattr(llm, "_client", lambda *_: _fake_client(_response("hi", "gpt-5-mini-2025-08-07"), seen))
+    llm.chat(MESSAGES, model="gpt-5-mini", ledger_path=tmp_path / "ledger.jsonl")
+    assert seen["reasoning_effort"] == "low"
+    monkeypatch.setenv("OPENAI_REASONING_EFFORT", "")  # empty = the API's own default: nothing sent
+    seen.clear()
+    llm.chat(MESSAGES, model="gpt-5-mini", ledger_path=tmp_path / "ledger.jsonl")
+    assert "reasoning_effort" not in seen
+    assert llm.reasoning_effort("gpt-4.1-mini") is None and llm.reasoning_effort("gemini-3.8-flash") is None
+    assert llm.reasoning_effort("gpt-5.1-chat-latest") is None
+
+
+def test_openai_reasoning_inside_completion_tokens_is_priced_once(monkeypatch, tmp_path):
+    """gpt-5-mini: 300 of the 500 completion tokens are reasoning, and total = prompt + completion."""
+    response = NS(model="gpt-5-mini-2025-08-07", choices=[NS(message=_message("{}"))],
+                  usage=NS(prompt_tokens=1000, completion_tokens=500, total_tokens=1500, prompt_tokens_details=None,
+                           completion_tokens_details=NS(reasoning_tokens=300)))
+    monkeypatch.setattr(llm, "_client", lambda *_: _fake_client(response))
+    result = llm.chat(MESSAGES, model="gpt-5-mini", ledger_path=tmp_path / "ledger.jsonl")
+    assert result.reasoning_tokens == 0 and result.total_tokens == 1500
+    assert result.cost_usd == pytest.approx((1000 * 0.25 + 500 * 2.00) / 1e6)
+
+
+def test_no_credit_is_a_clear_error_and_never_retried(monkeypatch, tmp_path):
+    request = httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
+    calls: list[int] = []
+
+    def create(**kwargs):
+        calls.append(1)
+        raise openai.RateLimitError("Error code: 429 - {'error': {'code': 'insufficient_quota'}}",
+                                    response=httpx.Response(429, request=request), body=None)
+
+    monkeypatch.setenv("LLM_PROVIDER", "openai")  # no spacing: any sleep here would be a retry
+    monkeypatch.setattr(llm, "_client", lambda *_: NS(chat=NS(completions=NS(create=create))))
+    with pytest.raises(llm.NoCreditError, match="no credit left"):
+        llm.paced(lambda: llm.chat(MESSAGES, model="gpt-5-mini", ledger_path=tmp_path / "ledger.jsonl"),
+                  sleep=lambda s: pytest.fail("waited for a 429 that waiting can't fix"))
+    assert len(calls) == 1 and not (tmp_path / "ledger.jsonl").exists()
+
+
+def test_openai_needs_no_spacing_and_gemini_does(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    assert llm.min_interval() == 0
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    assert llm.min_interval() == llm.MIN_INTERVAL_S
+
+
+def _strict_problems(node, path: str, problems: list[str]) -> None:
+    """OpenAI's strict structured outputs: every object lists all its keys as required and forbids extra keys;
+    no allOf/not/if/then/else; and (from the SDK's own strict converter) no `default`."""
+    if isinstance(node, dict):
+        if "properties" in node:
+            optional = set(node["properties"]) - set(node.get("required", []))
+            if optional:
+                problems.append(f"{path}: optional keys {sorted(optional)}")
+            if node.get("additionalProperties") is not False:
+                problems.append(f"{path}: additionalProperties is not false")
+        problems += [f"{path}: {key}" for key in ("allOf", "not", "if", "then", "else", "default") if key in node]
+        for key, value in node.items():
+            _strict_problems(value, f"{path}/{key}", problems)
+    elif isinstance(node, list):
+        for i, value in enumerate(node):
+            _strict_problems(value, f"{path}[{i}]", problems)
+
+
+def test_every_schema_we_send_meets_openais_strict_rules():
+    from shortsmith.agents.director import DirectorPlan
+    from shortsmith.agents.reviser import SceneFixes
+    from shortsmith.agents.writer import ScriptOptions, WriterPick
+    from shortsmith.models import CriticVerdict, Script
+
+    for schema in (ResearchNotes, Script, ScriptOptions, WriterPick, DirectorPlan, CriticVerdict, SceneFixes):
+        problems: list[str] = []
+        root = schema.model_json_schema()
+        _strict_problems(root, schema.__name__, problems)
+        assert root["type"] == "object" and "anyOf" not in root
+        assert problems == [], problems
+
+
+def test_the_embedding_provider_is_independent_of_the_chat_provider(monkeypatch, tmp_path):
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    assert llm.embedding_model() == llm.PROVIDERS[llm.EMBEDDING_PROVIDER_DEFAULT].embedding_model
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "gemini")
+    assert llm.embedding_model() == "gemini-embedding-2"  # chat on OpenAI, the index on Gemini's vectors
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "openai")
+    assert llm.embedding_model() == "text-embedding-3-small"
+    monkeypatch.setenv("SHORTSMITH_EMBEDDING_MODEL", "text-embedding-3-large")
+    assert llm.embedding_model() == "text-embedding-3-large"
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "nope")
+    with pytest.raises(ValueError, match="EMBEDDING_PROVIDER"):
+        llm.embedding_provider()
+
+    used: list[str | None] = []
+    batch = _embeddings([[0.5] * 4], model="text-embedding-3-small", usage=NS(prompt_tokens=7), indexed=True)
+
+    def client(name=None):
+        used.append(name)
+        return _embedding_client([batch])
+
+    monkeypatch.setattr(llm, "_client", client)
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")  # chat on Gemini, embeddings on OpenAI: still OpenAI's address
+    result = llm.embed(["a"], model="text-embedding-3-small", dimensions=4, ledger_path=tmp_path / "ledger.jsonl")
+    assert used == ["openai"] and result.prompt_tokens == 7 and result.cost_usd == pytest.approx(7 * 0.02 / 1e6)
+
+
+def test_the_rag_tables_are_one_per_model_and_size():
+    from shortsmith.research import rag, stores
+
+    names = {stores.table_name(rag.collection_name(m, 768)) for m in ("gemini-embedding-2", "text-embedding-3-small")}
+    assert names == {"kb_gemini_embedding_2_768", "kb_text_embedding_3_small_768"}
+
+
+def test_a_dated_snapshot_has_its_models_price_and_a_longer_name_has_none():
+    assert ledger.base_model("gpt-5-mini-2025-08-07") == "gpt-5-mini"
+    assert ledger.cost_usd("gpt-5.1-2025-11-13", 1_000_000, 0) == pytest.approx(1.25)
+    for unknown in ("gpt-5.5", "gpt-5-pro", "gpt-5.1-codex-max"):  # "starts with gpt-5" must not price them as gpt-5
+        with pytest.raises(ValueError, match="No price"):
+            ledger.cost_usd(unknown, 1, 1)
+
+
+def test_a_temperature_for_an_openai_reasoning_model_fails_before_sending(monkeypatch, tmp_path):
+    monkeypatch.setattr(llm, "_client", lambda *_: pytest.fail("sent a request OpenAI would refuse"))
+    with pytest.raises(ValueError, match="takes no temperature"):
+        llm.chat(MESSAGES, model="gpt-5-mini", temperature=0.0, ledger_path=tmp_path / "ledger.jsonl")

@@ -17,6 +17,7 @@ const started = (resumed = false, spent_usd = 0) => ev("run_started", {
   resumed, next: resumed ? ["critic"] : [], topic: "coffee", language: "en", research: false, brand: null,
   max_rounds: 2, pass_score: 7, hero_clips: 1, approve: "ask", budget_usd: 0.01, spent_usd, media: "mock",
   provider: "gemini", model: "gemini-3.5-flash-lite", critic_model: "gemini-3.8-flash", free_tier: true,
+  billing: "Gemini free tier: LLM calls billed $0 (costs shown are list price)",
 });
 const begin = (node: string, round = 0) => ev("node_started", { node, round, doing: `${node}...`, estimate_usd: 0.001, basis: "x" });
 const end = (node: string, round = 0, cost = 0.001, calls = 1) => ev("node_finished", {

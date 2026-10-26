@@ -74,6 +74,7 @@ class RunStarted(EventBase):
     model: str
     critic_model: str
     free_tier: bool  # Gemini on the free tier: every call is billed $0 (the numbers are list price)
+    billing: str = ""  # what "billed" means with these settings (Gemini free tier, OpenAI's free daily tokens, ...)
 
 
 class NodeStarted(EventBase):

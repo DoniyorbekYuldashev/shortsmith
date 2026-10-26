@@ -37,7 +37,7 @@ def answers(monkeypatch):
 
     monkeypatch.setenv("LLM_PROVIDER", "gemini")
     monkeypatch.setattr(llm, "MIN_INTERVAL_S", 0)
-    monkeypatch.setattr(llm, "_client", lambda: NS(chat=NS(completions=NS(create=create))))
+    monkeypatch.setattr(llm, "_client", lambda *_: NS(chat=NS(completions=NS(create=create))))
     monkeypatch.setattr(llm.ledger, "record", lambda entry, path: None)
     monkeypatch.setattr(writer, "_library", {"library: Open loop (en)": "This cafe has no menu. The reason is genius."})
     return NS(queue=queue, seen=seen)

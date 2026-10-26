@@ -60,7 +60,7 @@ def main() -> None:
     parser.add_argument("--to", choices=stores.BACKENDS, default="pgvector")
     args = parser.parse_args()
 
-    model, dimensions = llm.provider().embedding_model, llm.EMBED_DIMENSIONS
+    model, dimensions = llm.embedding_model(), llm.EMBED_DIMENSIONS
     both = open_both(model, dimensions)
     target = both[args.to]
     source = both["chroma" if args.to == "pgvector" else "pgvector"]

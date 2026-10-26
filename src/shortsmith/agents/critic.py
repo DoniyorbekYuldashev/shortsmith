@@ -4,7 +4,7 @@
 
 The Critic is the *evaluator* of the evaluator-optimizer loop (6.4): it only judges. Fixing is
 the Reviser's job (reviser.py), and a different model writes than judges (the writer is
-gemini-3.5-flash-lite, the critic gemini-3.8-flash), so a model never grades its own prose.
+gemini-3.5-flash-lite or gpt-5-mini, the critic gemini-3.8-flash or gpt-5.1), so a model never grades its own prose.
 
 Code measures what code can (words per scene against the target, a hook copied from the notes or
 the hook library) and hands the critic those facts: an LLM counts words badly, and a copied hook
@@ -18,7 +18,6 @@ it against the narration, but it can't judge real image quality until real image
 """
 
 import base64
-import os
 import subprocess
 from pathlib import Path
 
@@ -29,9 +28,14 @@ from shortsmith.media import ffmpeg
 from shortsmith.media.tts import Voiceover
 from shortsmith.models import NARRATION_WORDS, CriticReport, CriticVerdict, ResearchNotes, Script, ScriptChecks
 
-# Stronger than the writer, and not the writer (Phase 5, D14). The free tier gives each model only 20
-# requests a day, so SHORTSMITH_CRITIC_MODEL switches to a sibling (gemini-3.6-flash) when they run out.
-CRITIC_MODEL = os.environ.get("SHORTSMITH_CRITIC_MODEL", "gemini-3.8-flash")
+# Stronger than the writer, and not the writer (Phase 5, D14): the chat provider's critic_model
+# (gemini-3.8-flash, gpt-5.1), or SHORTSMITH_CRITIC_MODEL (llm.role_model). Gemini's free tier gives each
+# model only 20 requests a day, so that setting switches to a sibling (gemini-3.6-flash) when they run out.
+CRITIC_MODEL: str | None = None  # --critic-model for this process; None = the setting above
+
+
+def critic_model() -> str:
+    return CRITIC_MODEL or llm.role_model("critic")
 FRAMES = 4  # frames per review: a frame of every scene would cost ~50% more image tokens
 FRAME_WIDTH = 540  # half size: enough to read a card or judge a composition, a quarter of the pixels
 
@@ -160,7 +164,7 @@ def critic_messages(topic: str, script: Script, facts: ScriptChecks, frames: lis
 def review(topic: str, script: Script, notes: ResearchNotes | None = None, frames: list[tuple[int, float, Path]] = (),
            round_: int = 0, mock: bool = True, model: str | None = None) -> tuple[CriticReport, ChatResult]:
     """One critic round. Without frames it reviews the script alone (the 6.8 evaluation)."""
-    model = model or CRITIC_MODEL
+    model = model or critic_model()
     facts = checks(script, notes)
     verdict, result = llm.paced(lambda: llm.chat_json(critic_messages(topic, script, facts, frames, mock),
                                                       CriticVerdict, model=model, step="critic"))

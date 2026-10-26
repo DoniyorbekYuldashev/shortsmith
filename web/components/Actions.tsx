@@ -41,7 +41,7 @@ export function BudgetCard({ stop, onResume }: { stop: EventOf<"budget_stopped">
     <div className="callout warn">
       <strong>Stopped: over budget before the {stop.node}</strong>
       <p>Spent {usd(stop.spent_usd)} + {stop.node} ~{usd(stop.estimate_usd)} &gt; budget {usd(stop.limit_usd)} (list price;
-        the Gemini free tier bills $0). Everything finished is saved; nothing was sent for that step.</p>
+        free tiers and free daily tokens bill $0). Everything finished is saved; nothing was sent for that step.</p>
       <div className="row">
         <input type="number" min="0" step="0.01" value={budget} onChange={(e) => setBudget(e.target.value)} style={{ width: 120 }} />
         <button className="primary" disabled={busy || !(Number(budget) > stop.spent_usd)} onClick={resume}>

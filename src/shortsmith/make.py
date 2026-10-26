@@ -154,7 +154,7 @@ def main() -> None:
         run_dir = args.run
     script = Script.load(run_dir / "script.json")
 
-    with step(f"images ({'mock placeholders' if images.mock_media() else 'FLUX, paid'})"):
+    with step(f"images ({images.source().label})"):
         make_images(script, run_dir)
     with step(f"voice ({tts.VOICES[script.language]})"):
         voiceovers = make_voice(script, run_dir)

@@ -4,6 +4,10 @@ Every agent calls the LLM through `chat()`, so tokens, cost and latency are meas
 one place, and every call lands in the cost ledger. OpenAI and Gemini both speak this
 format, so switching provider only changes the address, the key and the model name.
 `embed()` does the same for embeddings (text -> vectors, for retrieval in research/rag.py).
+
+Which model a call uses: the caller's, else its role's (model_for: SHORTSMITH_<ROLE>_MODEL, else
+LLM_PROVIDER's defaults). Which address and key: the model's own provider (provider_of), so roles
+can live on different providers and embeddings follow EMBEDDING_PROVIDER, not LLM_PROVIDER.
 """
 
 import argparse
@@ -30,28 +34,93 @@ DEFAULT_LEDGER = ledger.DEFAULT_PATH
 class Provider(BaseModel):
     base_url: str | None  # None = the SDK's default address (api.openai.com)
     key_env: str  # name of the environment variable that holds the API key
-    default_model: str
+    default_model: str  # researcher, writer, director, revise
+    critic_model: str  # judges the frames: sees images, and is not the model that wrote the script
     embedding_model: str  # turns text into vectors for retrieval (research/rag.py)
 
 
 PROVIDERS = {
-    "openai": Provider(base_url=None, key_env="OPENAI_API_KEY", default_model="gpt-4.1-mini",
+    # gpt-5-mini: in the data-sharing "mini" group of free daily tokens (2.5M a day at usage tiers 1-2),
+    # strict JSON and vision, no announced shutdown (gpt-4.1-mini goes on 2027-01-14). gpt-5.1 judges:
+    # stronger than the writer, a different model, in the "large" group (250K a day at tiers 1-2).
+    "openai": Provider(base_url=None, key_env="OPENAI_API_KEY", default_model="gpt-5-mini", critic_model="gpt-5.1",
                        embedding_model="text-embedding-3-small"),
     "gemini": Provider(
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         key_env="GEMINI_API_KEY",
         default_model="gemini-3.5-flash-lite",
+        critic_model="gemini-3.8-flash",  # each free Flash model allows 20 requests a day: gemini-3.6-flash is the fallback
         embedding_model="gemini-embedding-2",  # multilingual: an Uzbek query finds an English text
     ),
 }
 
 
-def provider() -> Provider:
-    """Chosen by LLM_PROVIDER in .env; without it, OpenAI."""
+def provider_name() -> str:
+    """LLM_PROVIDER in .env; without it, OpenAI."""
     name = os.environ.get("LLM_PROVIDER", "openai")
     if name not in PROVIDERS:
         raise ValueError(f"LLM_PROVIDER={name!r}, expected one of {sorted(PROVIDERS)}")
-    return PROVIDERS[name]
+    return name
+
+
+def provider() -> Provider:
+    """The chat provider: its models are every role's default."""
+    return PROVIDERS[provider_name()]
+
+
+def provider_of(model: str) -> str:
+    """Which provider serves a model: its name says so. A model always goes to its own provider's address
+    and key, so SHORTSMITH_CRITIC_MODEL=gemini-3.8-flash with LLM_PROVIDER=openai still reaches Google."""
+    return "gemini" if model.removeprefix("models/").startswith("gemini") else "openai"
+
+
+# Ledger step -> role. Each role's model: SHORTSMITH_<ROLE>_MODEL if set (SHORTSMITH_CRITIC_MODEL is the
+# Phase 6 one), else the chat provider's default (the critic: its critic_model).
+ROLES = {"researcher": "researcher", "writer": "writer", "writer-pick": "writer", "director": "director",
+         "critic": "critic", "revise": "revise"}
+
+
+def role_model(role: str) -> str:
+    if chosen := os.environ.get(f"SHORTSMITH_{role.upper()}_MODEL", "").strip():
+        return chosen
+    p = provider()
+    return p.critic_model if role == "critic" else p.default_model
+
+
+def model_for(step: str) -> str:
+    """The model a call made by `step` uses when the caller names none."""
+    return role_model(ROLES[step]) if step in ROLES else provider().default_model
+
+
+EMBEDDING_PROVIDER_DEFAULT = "gemini"  # see embedding_provider()
+
+
+def embedding_provider() -> str:
+    """EMBEDDING_PROVIDER, independent of LLM_PROVIDER: the index belongs to one embedding model, and the
+    chat provider can change without re-indexing anything."""
+    name = os.environ.get("EMBEDDING_PROVIDER", EMBEDDING_PROVIDER_DEFAULT).strip() or EMBEDDING_PROVIDER_DEFAULT
+    if name not in PROVIDERS:
+        raise ValueError(f"EMBEDDING_PROVIDER={name!r}, expected one of {sorted(PROVIDERS)}")
+    return name
+
+
+def embedding_model() -> str:
+    """The model behind the RAG index: SHORTSMITH_EMBEDDING_MODEL, else the embedding provider's."""
+    return os.environ.get("SHORTSMITH_EMBEDDING_MODEL", "").strip() or PROVIDERS[embedding_provider()].embedding_model
+
+
+# OpenAI's reasoning models think before answering; how much is a request setting. "low" for every role:
+# fast, and enough for scripts and a critique. Gemini is left at its default (nothing sent).
+REASONING_EFFORT_DEFAULT = "low"
+_REASONING_FAMILIES = ("gpt-5", "gpt-6", "o1", "o3", "o4")
+
+
+def reasoning_effort(model: str) -> str | None:
+    """What to send as reasoning_effort for `model`: OPENAI_REASONING_EFFORT ("" = the API's default),
+    only to OpenAI's reasoning models (a chat-latest alias doesn't take it)."""
+    if provider_of(model) != "openai" or not model.startswith(_REASONING_FAMILIES) or "chat" in model:
+        return None
+    return os.environ.get("OPENAI_REASONING_EFFORT", REASONING_EFFORT_DEFAULT).strip() or None
 
 
 # One chat message in the API's own wire format. A plain dict on purpose: an assistant message
@@ -89,13 +158,26 @@ class ChatResult(BaseModel):
 
 
 @cache
-def _client() -> OpenAI:
-    """Built on first use, so importing this module never needs an API key (tests stay offline)."""
-    p = provider()
+def _client(name: str | None = None) -> OpenAI:
+    """One client per provider (`name`; None = the chat provider), built on first use, so importing this
+    module never needs an API key (tests stay offline)."""
+    p = PROVIDERS[name or provider_name()]
     key = os.environ.get(p.key_env)
     if not key:
         raise ValueError(f"{p.key_env} is empty: add it to .env")
     return OpenAI(api_key=key, base_url=p.base_url)
+
+
+class NoCreditError(RuntimeError):
+    """OpenAI's 429 insufficient_quota: the organization's prepaid credit is used up. Waiting won't help."""
+
+
+def _no_credit(e: RateLimitError) -> NoCreditError | None:
+    if "insufficient_quota" not in str(e) and "credit_balance" not in str(e):
+        return None
+    return NoCreditError("the OpenAI organization has no credit left (429 insufficient_quota): add credit in the "
+                         "OpenAI dashboard (Settings -> Billing); even the free daily data-sharing tokens need a "
+                         "positive balance")
 
 
 def _complete(
@@ -107,19 +189,32 @@ def _complete(
     **request: object,
 ) -> ChatResult:
     """The one place that sends a request: every call, plain or JSON, is priced and recorded here."""
-    model = model or provider().default_model
+    model = model or model_for(step)
     ledger.cost_usd(model, 0, 0)  # fail before paying if this model has no price
+    reasoning = provider_of(model) == "openai" and model.startswith(_REASONING_FAMILIES)
     if temperature is not None:  # not `if temperature:`, because 0.0 is a real choice
+        if reasoning:  # OpenAI's reasoning models refuse any temperature but 1: say so before sending anything
+            raise ValueError(f"{model} is a reasoning model and takes no temperature: use a model like gpt-4.1-mini "
+                             "for a temperature experiment")
         request["temperature"] = temperature  # left out = the provider's default (1.0 for Gemini 3)
+    if (effort := reasoning_effort(model)) is not None:
+        request.setdefault("reasoning_effort", effort)
 
     start = time.perf_counter()
-    response = _client().chat.completions.create(model=model, messages=messages, **request)
+    try:
+        response = _client(provider_of(model)).chat.completions.create(model=model, messages=messages, **request)
+    except RateLimitError as e:
+        if (no_credit := _no_credit(e)) is not None:
+            raise no_credit from e
+        raise
     latency = time.perf_counter() - start
 
     usage = response.usage
     cached = (usage.prompt_tokens_details.cached_tokens if usage.prompt_tokens_details else 0) or 0
     # Gemini 3 Flash models think before answering: e.g. 5,444 in + 123 out but total_tokens 6,184
     # (Phase 6 build notes, E13). The gap is billed as output, so it is priced as output here.
+    # OpenAI's reasoning models count their thinking INSIDE completion_tokens (completion_tokens_details
+    # says how much): total = prompt + completion, the gap is 0 and nothing is counted twice.
     reasoning = max(0, (getattr(usage, "total_tokens", 0) or 0) - usage.prompt_tokens - usage.completion_tokens)
     answered_by = response.model.removeprefix("models/")  # Gemini names models "models/gemini-..."
     message = response.choices[0].message
@@ -234,18 +329,24 @@ class DailyQuotaError(RuntimeError):
     """A per-day quota is used up: waiting minutes won't help, so it isn't retried (Phase 6, E11)."""
 
 
+def min_interval() -> float:
+    """Seconds between paced requests: MIN_INTERVAL_S on Gemini's free tier; none on OpenAI, whose
+    tier-1 limits (hundreds of requests a minute) a ~10-call run never comes near."""
+    return MIN_INTERVAL_S if provider_name() == "gemini" else 0.0
+
+
 def paced[T](call: Callable[[], T], sleep: Callable[[float], None] = time.sleep) -> T:
-    """Run one LLM request at most every MIN_INTERVAL_S, and wait out a 429 or a 5xx instead of failing.
+    """Run one LLM request at most every min_interval(), and wait out a 429 or a 5xx instead of failing.
 
     A 429's wait is the one the error names ("Please retry in 12.75s", see _retry_delay); a 5xx
     (Gemini's 503 "high demand", which ended run 1 of the Phase 6 build) waits 30 s, 60 s, 90 s: the
     SDK's own two quick retries are not enough for a demand spike. A refused request isn't billed,
     so only the call that succeeds lands in the ledger. The graph's nodes (Phase 6) send every
-    request through here.
+    request through here. OpenAI's "no credit" 429 is never retried: _complete() raises NoCreditError.
     """
     global _last_request
     for attempt in range(1, CHAT_RETRIES + 1):
-        wait = _last_request + MIN_INTERVAL_S - time.monotonic()
+        wait = _last_request + min_interval() - time.monotonic()
         if wait > 0:
             sleep(wait)
         _last_request = time.monotonic()
@@ -272,8 +373,9 @@ def paced[T](call: Callable[[], T], sleep: Callable[[float], None] = time.sleep)
 
 # --- embeddings ------------------------------------------------------------------------------
 
-EMBED_DIMENSIONS = 768  # both models can shorten their vectors (3072 / 1536 by default); 768 is
-# one of Google's recommended sizes: 4x less to store and compare, little lost for short texts
+EMBED_DIMENSIONS = 768  # every model we use can shorten its vectors (3072 / 1536 by default); 768 is
+# one of Google's recommended sizes: 4x less to store and compare, little lost for short texts.
+# OpenAI's text-embedding-3 models shorten too (the `dimensions` parameter, "Matryoshka" training).
 EMBED_BATCH = 100  # texts per request: Gemini's batch limit
 # Gemini's free tier counts every TEXT as one request, 100 per minute per model, batched or not
 # (Phase 5 build notes): re-indexing twice in a minute hits it. A 429 waits as long as the
@@ -316,8 +418,10 @@ def _embed_request(batch: list[str], model: str, dimensions: int) -> Any:
     """One embeddings request, retried after a 429. A refused request isn't billed."""
     for attempt in range(1, EMBED_RETRIES + 1):
         try:
-            return _client().embeddings.create(model=model, input=batch, dimensions=dimensions)
+            return _client(provider_of(model)).embeddings.create(model=model, input=batch, dimensions=dimensions)
         except RateLimitError as e:
+            if (no_credit := _no_credit(e)) is not None:
+                raise no_credit from e
             if attempt == EMBED_RETRIES:
                 raise
             delay = _retry_delay(e, attempt)
@@ -337,8 +441,9 @@ def embed(
 
     Gemini's OpenAI-compatible endpoint answers with usage: null for embeddings (its native
     endpoint does count them), so those tokens are estimated with tiktoken and marked as such.
+    The model goes to its own provider (provider_of), whatever LLM_PROVIDER says.
     """
-    model = model or provider().embedding_model
+    model = model or embedding_model()
     ledger.cost_usd(model, 0, 0)  # no price, no call
     vectors: list[list[float]] = []
     tokens, estimated, latency, answered_by = 0, False, 0.0, model

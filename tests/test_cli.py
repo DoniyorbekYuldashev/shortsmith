@@ -110,7 +110,7 @@ def test_make_runs_the_graph_to_a_final_video(env):
     out, err = result.stdout, result.stderr
     assert "video" in out and str((folder / "final.mp4").resolve()) in out  # results on stdout
     assert "critic   5 -> 8 | passed (8 >= 7)" in out
-    assert "cost     $0.0009 list price | $0 billed (Gemini free tier) | 6 calls (6 in this session)" in out
+    assert "cost     $0.0009 list price | $0 billed (free tier / free daily tokens) | 6 calls (6 in this session)" in out
     assert "done writer" in err and "... writer: writing 3 script options" in err  # progress on stderr
     assert "hero clip? Scene 1" in err and "answered by --approve: yes" in err
     assert "| node " in out and "| total" not in out  # a Markdown table when not a terminal
@@ -182,15 +182,18 @@ def test_more_than_one_hero_clip_is_refused_with_the_reason(env):
 
 def test_real_without_yes_and_nobody_to_ask_is_refused_before_anything_starts(env, monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fake")
+    monkeypatch.setenv("OPENAI_API_KEY", "fake")  # images: OpenAI's gpt-image-2 at low quality, the default
     result = run("make", "coffee", "--real")
     assert result.exit_code == cli.ExitCode.USAGE
-    assert "images: 6 x $0.0030 = $0.0180" in result.stderr and "hero clip: ~$0.30" in result.stderr
+    assert "images: 6 x $0.0050 = $0.0300 (openai gpt-image-2 (low, 1024x1536)" in result.stderr
+    assert "hero clip: ~$0.30" in result.stderr
     assert "--real needs a yes, and there is no terminal to ask" in result.stderr and "add --yes" in result.stderr
     assert env.llm.calls == {} and not Path("runs").exists()  # no run folder, no call
 
 
 def test_real_asks_and_no_spends_nothing(env, monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fake")
+    monkeypatch.setenv("OPENAI_API_KEY", "fake")
     monkeypatch.setattr(console, "stdin_interactive", lambda: True)
     result = run("make", "coffee", "--real", input="n\n")
     assert result.exit_code == 1 and "cancelled: nothing was made or spent" in result.stderr
@@ -199,9 +202,11 @@ def test_real_asks_and_no_spends_nothing(env, monkeypatch):
 
 def test_real_with_yes_runs_with_real_media_recorded_on_the_run(env, monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fake")  # every media function is faked in `world`: nothing is sent anywhere
+    monkeypatch.setenv("IMAGE_PROVIDER", "fal")
+    monkeypatch.setenv("FAL_IMAGE_MODEL", "fal-ai/flux/schnell")
     result = run("make", "coffee", "--real", "--yes", "--approve", "no", "--no-trace")
     assert result.exit_code == 0, result.output
-    assert "confirmed by --yes" in result.stderr and "media: REAL images on fal.ai (paid)" in result.stderr
+    assert "confirmed by --yes" in result.stderr and "media: REAL images, fal fal-ai/flux/schnell" in result.stderr
     s, _ = state_of(newest().name)
     assert s.media == "real"
     assert "... producer: making the images and voices that are missing (est. $0.0180)" in result.stderr
@@ -578,3 +583,55 @@ def test_python_m_shortsmith_make_and_python_m_shortsmith_still_work():
     new = subprocess.run([sys.executable, "-m", "shortsmith", "--help"], capture_output=True, text=True, timeout=120,
                          encoding="utf-8")
     assert new.returncode == 0 and "rerun-scene" in new.stdout and "Exit codes" in new.stdout
+
+
+# --- providers per role (the OpenAI switch, 2026-10-26) ------------------------------------------------------------
+
+
+def test_doctor_shows_each_roles_provider_and_never_a_key(env, monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-SECRET-openai-1")
+    monkeypatch.setenv("GEMINI_API_KEY", "gm-SECRET-gemini-2")
+    monkeypatch.setenv("OPENAI_DATA_SHARING", "1")
+    result = run("doctor")
+    assert result.exit_code == 0, result.output
+    assert "SECRET" not in result.output
+    rows = doctor_rows(result)
+    assert "openai: gpt-5-mini (researcher, writer, director, revise; reasoning effort low)" in rows["text"]
+    assert "openai: gpt-5.1" in rows["critic"] and "| ok " in rows["critic"]
+    assert "gemini: gemini-embedding-2 (768 numbers a vector; EMBEDDING_PROVIDER=gemini)" in rows["embeddings"]
+    assert "openai: gpt-image-2 (low, 1024x1536, ~$0.0050 an image; now: placeholders" in rows["images (--real)"]
+    assert "| ok " in rows["OPENAI_API_KEY"] and "| ok " in rows["GEMINI_API_KEY"]  # both needed: text and the index
+    assert "data sharing on; 2,500,000 mini + 250,000 large a day; past them: warn" in rows["free tokens"]
+    assert "OPENAI_DATA_SHARING=set, OPENAI_FREE_DAILY_TOKENS_MINI=default" in rows["free tokens"]
+    monkeypatch.delenv("OPENAI_API_KEY")
+    result = run("doctor")
+    assert result.exit_code == 1 and "not ready: OPENAI_API_KEY" in result.stderr
+
+
+def test_doctor_names_an_unknown_image_provider(env, monkeypatch):
+    monkeypatch.setenv("IMAGE_PROVIDER", "dalle")
+    result = run("doctor")
+    assert result.exit_code == 1 and "IMAGE_PROVIDER='dalle'" in result.stdout
+
+
+def test_no_credit_and_the_free_allowance_stop_have_their_own_next_step():
+    from shortsmith import budget, llm
+
+    message, hint, code = cli.explain(llm.NoCreditError("the OpenAI organization has no credit left (429 "
+                                                        "insufficient_quota): add credit in ..."), "r1")
+    assert message.endswith("(429 insufficient_quota)") and "Settings -> Billing" in hint and "shortsmith resume r1" in hint
+    message, hint, code = cli.explain(budget.FreeAllowanceReached("critic", "large", 240_000, 6_000, 250_000), "r1")
+    assert "large group: 240,000 used of 250,000" in message and code == cli.ExitCode.OVER_BUDGET
+    assert "00:00 UTC" in hint and hint.endswith("shortsmith resume r1")
+
+
+def test_real_with_a_hero_clip_needs_fals_key_before_anything_starts(env, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "fake")
+    monkeypatch.delenv("FAL_KEY", raising=False)
+    result = run("make", "coffee", "--real", "--yes")
+    assert result.exit_code == 1 and "FAL_KEY is not set, and an approved hero clip is made on fal.ai" in result.stderr
+    assert "--hero-clips 0" in result.stderr and not Path("runs").exists()
+    monkeypatch.delenv("OPENAI_API_KEY")
+    result = run("make", "coffee", "--real", "--yes", "--hero-clips", "0")
+    assert result.exit_code == 1 and "OPENAI_API_KEY is not set, and --real makes images with openai" in result.stderr

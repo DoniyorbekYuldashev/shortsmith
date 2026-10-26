@@ -31,6 +31,7 @@ import shutil
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Annotated, Literal
@@ -41,7 +42,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.sse import EventSourceResponse, format_sse_event
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from shortsmith import budget, costs, ledger, llm, runs
+from shortsmith import budget, costs, ledger, llm, providers, runs
 from shortsmith.events import ApprovalAnswered, ApprovePolicy, Event, Queued
 from shortsmith.jobs import Job, Jobs, QueueFull, QueueView, load_job
 from shortsmith.research import stores
@@ -134,12 +135,15 @@ class Health(BaseModel):
     ok: bool  # a run without research can start
     version: str
     provider: str
-    model: str
+    model: str  # the writer's (and researcher's, director's, reviser's unless set apart)
     critic_model: str
-    key_set: bool  # the provider's API key is set (its value is never sent anywhere)
+    key_set: bool  # every key the text, critic and embedding models need is set (no value is ever sent)
     youtube_key_set: bool
     media: Literal["mock"]  # always, in this phase
     free_tier: bool  # Gemini free tier: billed $0, the numbers shown are list price
+    billing: str  # what "billed" means with these settings, in one line
+    setup: providers.Setup | None  # every role's provider and model, keys set or not, allowance settings
+    allowance: costs.AllowanceToday | None  # OpenAI's free daily tokens used today, by our ledger
     ffmpeg: bool
     research_ready: bool  # the vector store answers (pgvector: Docker + the database)
     vector_store: stores.StoreStatus | None  # the database URL masked; None if it couldn't be asked
@@ -353,7 +357,7 @@ def create_app(trace: bool = True, origins: list[str] | None = None, max_queued:
         """The ledger by day, run, model and step; list price next to billed; today's free-tier use."""
         from shortsmith.agents import critic
 
-        return costs.report(ledger.entries(ledger.DEFAULT_PATH), days, run, critic_model=critic.CRITIC_MODEL)
+        return costs.report(ledger.entries(ledger.DEFAULT_PATH), days, run, critic_model=critic.critic_model())
 
     @app.get("/queue", tags=["runs"])
     def queue() -> QueueView:
@@ -371,32 +375,43 @@ def create_app(trace: bool = True, origins: list[str] | None = None, max_queued:
 
         found: list[Problem] = []
         name = os.environ.get("LLM_PROVIDER", "openai")
+        setup: providers.Setup | None = None
+        model, critic_model, key_set, embedding = "", "", False, ""
         try:
-            p = llm.provider()
-            model, key_set = p.default_model, bool(os.environ.get(p.key_env))
-            if not key_set:
-                found.append(Problem(message=f"{p.key_env} is not set (LLM_PROVIDER={name})",
+            setup = providers.setup()
+            model, critic_model, embedding = llm.model_for("writer"), critic.critic_model(), llm.embedding_model()
+            missing = sorted({r.key_env for r in setup.roles if r.role in ("text", "critic", "embeddings")
+                              and r.key_env and not r.key_set})
+            key_set = not missing
+            for key in missing:
+                found.append(Problem(message=f"{key} is not set (LLM_PROVIDER={name})",
                                      hint="put it in .env in the repo folder, then restart `shortsmith serve`"))
         except ValueError as e:
-            p, model, key_set = None, "", False
-            found.append(Problem(message=str(e), hint="LLM_PROVIDER is gemini or openai"))
+            found.append(Problem(message=str(e), hint="LLM_PROVIDER and EMBEDDING_PROVIDER are gemini or openai; "
+                                                      "IMAGE_PROVIDER openai, fal or mock"))
         ffmpeg_ok = shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
         if not ffmpeg_ok:
             found.append(Problem(message="ffmpeg or ffprobe is not on PATH", hint="install ffmpeg, then restart the server"))
         store: stores.StoreStatus | None = None
         research_ready = False
         try:
-            s = store = stores.status(rag.collection_name(p.embedding_model if p else "", llm.EMBED_DIMENSIONS))
+            s = store = stores.status(rag.collection_name(embedding, llm.EMBED_DIMENSIONS))
             research_ready = s.backend == "chroma" or bool(s.reachable)
             if not research_ready:
                 found.append(Problem(message=f"research is off: {s.error}", hint=s.hint or ""))
         except Exception as e:  # an unknown VECTOR_STORE, a broken install: a status, not a crash
             found.append(Problem(message=f"the vector store can't be checked: {type(e).__name__}: {e}",
                                  hint="`shortsmith doctor` shows more"))
+        allowance = None
+        try:
+            allowance = costs.allowance_today(ledger.entries(ledger.DEFAULT_PATH), datetime.now(timezone.utc))
+        except ValueError as e:  # an OPENAI_FREE_* setting we can't read
+            found.append(Problem(message=str(e), hint="see .env.example for the OPENAI_FREE_* settings"))
         return Health(ok=key_set and ffmpeg_ok, version=package_version("shortsmith"), provider=name, model=model,
-                      critic_model=critic.CRITIC_MODEL, key_set=key_set,
+                      critic_model=critic_model, key_set=key_set,
                       youtube_key_set=bool(os.environ.get("YOUTUBE_API_KEY")), media="mock",
-                      free_tier=name == "gemini" and costs.free_tier(), ffmpeg=ffmpeg_ok, research_ready=research_ready,
+                      free_tier=name == "gemini" and costs.free_tier(), billing=setup.billing if setup else "",
+                      setup=setup, allowance=allowance, ffmpeg=ffmpeg_ok, research_ready=research_ready,
                       vector_store=store, problems=found, queue=jobs.worker.view())
 
     return app

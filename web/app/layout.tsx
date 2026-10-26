@@ -19,7 +19,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             <Link href="/">New video</Link>
             <Link href="/runs">Runs</Link>
           </nav>
-          <span className="note muted small">local only · mock media · billed $0 on the Gemini free tier</span>
+          <span className="note muted small">local only · mock media · costs at list price</span>
         </header>
         <main>{children}</main>
       </body>

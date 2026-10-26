@@ -997,6 +997,89 @@
         ],
         "title": "Accepted"
       },
+      "Allowance": {
+        "properties": {
+          "data_sharing": {
+            "type": "boolean",
+            "title": "Data Sharing"
+          },
+          "daily_tokens": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Daily Tokens"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "warn",
+              "stop"
+            ],
+            "title": "Action"
+          },
+          "configured": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "type": "object",
+            "title": "Configured"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data_sharing",
+          "daily_tokens",
+          "action",
+          "configured"
+        ],
+        "title": "Allowance",
+        "description": "OpenAI's complimentary daily tokens, as the settings describe them."
+      },
+      "AllowanceToday": {
+        "properties": {
+          "data_sharing": {
+            "type": "boolean",
+            "title": "Data Sharing"
+          },
+          "day_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Day Start"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "warn",
+              "stop"
+            ],
+            "title": "Action"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/GroupToday"
+            },
+            "type": "array",
+            "title": "Groups"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data_sharing",
+          "day_start",
+          "action",
+          "groups",
+          "notes"
+        ],
+        "title": "AllowanceToday"
+      },
       "Answer": {
         "properties": {
           "answer": {
@@ -1205,6 +1288,10 @@
             "type": "boolean",
             "title": "Free Tier"
           },
+          "billing": {
+            "type": "string",
+            "title": "Billing"
+          },
           "total": {
             "$ref": "#/components/schemas/CostRow"
           },
@@ -1238,6 +1325,7 @@
           "since",
           "run",
           "free_tier",
+          "billing",
           "total",
           "by_day",
           "by_run",
@@ -1684,6 +1772,48 @@
         ],
         "title": "Files"
       },
+      "GroupToday": {
+        "properties": {
+          "group": {
+            "type": "string",
+            "title": "Group"
+          },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Models"
+          },
+          "tokens": {
+            "type": "integer",
+            "title": "Tokens"
+          },
+          "daily_tokens": {
+            "type": "integer",
+            "title": "Daily Tokens"
+          },
+          "left": {
+            "type": "integer",
+            "title": "Left"
+          },
+          "billed_usd": {
+            "type": "number",
+            "title": "Billed Usd"
+          }
+        },
+        "type": "object",
+        "required": [
+          "group",
+          "models",
+          "tokens",
+          "daily_tokens",
+          "left",
+          "billed_usd"
+        ],
+        "title": "GroupToday",
+        "description": "One OpenAI data-sharing group since 00:00 UTC, by our ledger."
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1736,6 +1866,30 @@
             "type": "boolean",
             "title": "Free Tier"
           },
+          "billing": {
+            "type": "string",
+            "title": "Billing"
+          },
+          "setup": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Setup"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "allowance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AllowanceToday"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "ffmpeg": {
             "type": "boolean",
             "title": "Ffmpeg"
@@ -1776,6 +1930,9 @@
           "youtube_key_set",
           "media",
           "free_tier",
+          "billing",
+          "setup",
+          "allowance",
           "ffmpeg",
           "research_ready",
           "vector_store",
@@ -2250,6 +2407,9 @@
             "type": "array",
             "title": "Gemini"
           },
+          "openai": {
+            "$ref": "#/components/schemas/AllowanceToday"
+          },
           "youtube_units": {
             "type": "integer",
             "title": "Youtube Units"
@@ -2274,6 +2434,7 @@
         "required": [
           "day_start",
           "gemini",
+          "openai",
           "youtube_units",
           "youtube_cap",
           "youtube_limit",
@@ -2458,6 +2619,50 @@
         ],
         "title": "Revision",
         "description": "One scene's change in one round: kept in the state (RunState.revisions, appended)."
+      },
+      "Role": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "default": ""
+          },
+          "key_env": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key Env"
+          },
+          "key_set": {
+            "type": "boolean",
+            "title": "Key Set",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "role",
+          "provider",
+          "model"
+        ],
+        "title": "Role"
       },
       "RunDetail": {
         "properties": {
@@ -2823,6 +3028,11 @@
           "free_tier": {
             "type": "boolean",
             "title": "Free Tier"
+          },
+          "billing": {
+            "type": "string",
+            "title": "Billing",
+            "default": ""
           }
         },
         "type": "object",
@@ -2846,7 +3056,8 @@
           "provider",
           "model",
           "critic_model",
-          "free_tier"
+          "free_tier",
+          "billing"
         ],
         "title": "RunStarted",
         "description": "The worker took the run: a new run, or a resume (after an answer, a budget stop or a crash)."
@@ -3300,6 +3511,49 @@
           "media"
         ],
         "title": "Settings"
+      },
+      "Setup": {
+        "properties": {
+          "llm_provider": {
+            "type": "string",
+            "title": "Llm Provider"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/Role"
+            },
+            "type": "array",
+            "title": "Roles"
+          },
+          "keys": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "type": "object",
+            "title": "Keys"
+          },
+          "mock_media": {
+            "type": "boolean",
+            "title": "Mock Media"
+          },
+          "allowance": {
+            "$ref": "#/components/schemas/Allowance"
+          },
+          "billing": {
+            "type": "string",
+            "title": "Billing"
+          }
+        },
+        "type": "object",
+        "required": [
+          "llm_provider",
+          "roles",
+          "keys",
+          "mock_media",
+          "allowance",
+          "billing"
+        ],
+        "title": "Setup"
       },
       "StartRun": {
         "properties": {
