@@ -289,6 +289,21 @@ That's where OpenAI should win; the editor is ffmpeg and doesn't change. Expecte
 list price: ~$0.07 (critic ~$0.02 a call on gpt-5.1, the rest under $0.01), ~7k mini + ~18k large tokens:
 **billed $0** within the allowance, once data sharing is on and eligible.
 
+### 7b. After the owner's credit (2026-10-27)
+
+The owner added credit (balance about $5.99), the organization shows **Verified** (Settings -> Organization ->
+Verifications), and the org's Sharing page says **"You're enrolled for complimentary daily tokens"**, enabled for
+the shortsmith project. So `OPENAI_DATA_SHARING=1` is now right to set (the owner flips `.env`).
+
+**Live check a: PASSED.** One call with `LLM_PROVIDER=openai` set for that command only (`.env` untouched):
+`gpt-5-mini-2025-08-07` answered "OK", **13 tokens in + 10 out, $0.000023 list price, 3.09 s**, one ledger line
+(step `openai-check`). Reasoning effort `low` was accepted.
+
+**Live check b (one full mock-media run on OpenAI): not run.** The command was stopped before it started, and
+the build waits for the owner's word on how to run it. The speed table in §7 keeps its empty OpenAI column.
+
+**Images: 0 made.** An image go arrived and was cancelled again by the owner before anything was sent.
+
 ## 8. Errors (every one, how it was found, the fix)
 
 **E1. The first two full test runs hung at the first web test.** Found: `pytest -v` stopped at
