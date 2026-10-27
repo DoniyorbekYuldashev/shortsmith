@@ -299,8 +299,47 @@ the shortsmith project. So `OPENAI_DATA_SHARING=1` is now right to set (the owne
 `gpt-5-mini-2025-08-07` answered "OK", **13 tokens in + 10 out, $0.000023 list price, 3.09 s**, one ledger line
 (step `openai-check`). Reasoning effort `low` was accepted.
 
-**Live check b (one full mock-media run on OpenAI): not run.** The command was stopped before it started, and
-the build waits for the owner's word on how to run it. The speed table in §7 keeps its empty OpenAI column.
+**Live check b: PASSED** (owner's go, 2026-10-27). One mock-media run with `LLM_PROVIDER=openai`,
+`OPENAI_DATA_SHARING=1` and `MOCK_MEDIA=1` set for that command only: `shortsmith make "coffee shop in Tashkent,
+cozy autumn vibe" --approve no --no-trace`, run **2026-10-27_132453**, final video
+`runs/2026-10-27_132453/final.mp4` (32.5 s, 1080x1920). **4 calls, 12,036 tokens, $0.0222 list price, $0 billed;
+done in 124 s** (140 s wall, uv start included). The critic (gpt-5.1) gave **7.8** on the first look and the run
+passed (7.8 >= 7): no revision round, so no revise call. It still named scenes 1, 4 and 6 as weak, from the
+placeholder frames of scenes 1, 3, 4 and 6.
+
+| node | OpenAI run 2026-10-27_132453 | Gemini run 2026-10-25_144556 | Gemini run 2026-10-24_182435 |
+|---|---|---|---|
+| writer (options + pick) | **29.4 s**, 2 calls, 1,495 in / 4,330 out, $0.0090 | 6.2 s | 13.1 s |
+| director | **7.0 s**, 847 in / 926 out, $0.0021 | 5.7 s | 5.0 s |
+| producer (mock) | 26.9 s | 8.0 s | 22.1 s |
+| editor (ffmpeg) | 46.7 s | 50.8 s | 135.1 s |
+| critic | **14.0 s** (1 call), 3,802 in / 636 out, $0.0111 | **499.4 s** (2 calls) | **567.2 s** (3 calls) |
+| revise | not needed (passed) | 13.7 s | 7.8 s |
+| whole run | **124 s** | about 10 min | about 13 min |
+
+What it shows:
+- **The critic is where the time went, and it's 35x faster per call**: 14 s for one gpt-5.1 call against ~250 s
+  for one Gemini Flash call (499 s / 2) on the free tier. That alone turns a 10-13 minute run into about 2 minutes.
+- **The writer is slower on OpenAI** (29 s against 6-13 s): gpt-5-mini writes 3 options and thinks first. Its
+  3,910 completion tokens include reasoning (OpenAI counts it inside `completion_tokens`); flash-lite wrote less.
+  If the writer's 29 s matters, `SHORTSMITH_WRITER_MODEL` can try a faster model; nothing else needs it.
+- **Estimates held**: the critic was estimated at $0.0206 (the first-call guess: 4,500 in + 1,500 out) and cost
+  $0.0111; the writer $0.0111 estimated, $0.0090 real.
+- Producer and editor are local (placeholders, edge-tts, ffmpeg), so their times vary with the machine, not the provider.
+
+**Today's free tokens after the run** (`shortsmith cost` with `OPENAI_DATA_SHARING=1`; our ledger since 00:00 UTC):
+
+| group | models used today | tokens | free a day | left (by our count) | billed |
+|---|---|---:|---:|---:|---:|
+| mini | gpt-5-mini | 16,015 | 2,500,000 | 2,483,985 | $0 |
+| large | gpt-5.1 | 4,438 | 250,000 | 245,562 | $0 |
+
+Today's OpenAI total: **8 calls, 20,453 tokens, $0.0349 list price, $0 billed.** That is check a (1 call) + this
+run (4) + **3 calls from run 2026-10-27_121145**: the first attempt at check b (07:12 UTC) had started before it
+was stopped, and it made the writer and director calls (725 + 5,071, 778 + 313, 846 + 661 tokens; $0.0127 list,
+$0 billed) before it ended. That run is unfinished: its folder and checkpoint are still there
+(`shortsmith resume 2026-10-27_121145` would finish it; nothing else depends on it). Total text calls this
+session: 8 of the ~25 allowed. Whether OpenAI's own counter agrees can only be seen on the org's Usage page.
 
 **Images: 0 made.** An image go arrived and was cancelled again by the owner before anything was sent.
 
