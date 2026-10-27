@@ -54,6 +54,8 @@ chat interrupted my flow, so each phase now runs like this:
 - Type hints everywhere. Short docstrings that explain *why*, not *what*.
 - `pytest` tests for pure logic (parsing, ffmpeg command building, ledger). Mock the LLM in tests.
 - Frontend: Next.js + TypeScript in `web/`.
+- **No AI attribution in commits (owner's rule, 2026-10-27):** never add `Co-Authored-By: Claude ...` or any
+  "Generated with Claude" line to commit messages or PRs. The owner is the only author.
 - Commit at the end of a phase, or when it's genuinely needed (before a risky change, or when I ask).
   Don't commit or ask about committing after every step: it interrupts my learning flow (owner's request,
   2026-10-21). Keep each commit message clear about which steps it covers.
@@ -69,13 +71,14 @@ chat interrupted my flow, so each phase now runs like this:
   in `.env`, OpenAI-compatible endpoint, default model `gemini-3.5-flash-lite`; `gemini-3.8-flash` for
   quality-sensitive steps). Gemini key lives in AI Studio project `gen-lang-client-0252045076`, Free tier:
   never click "Set up billing". Limits are per-minute/per-day requests (see aistudio.google.com/rate-limit).
-- **Images (owner's decision, 2026-10-25): Nano Banana through fal.ai** (`fal-ai/nano-banana` = Google's original
-  Gemini image model, $0.0398/image, `aspect_ratio: "9:16"` supported), using the existing `FAL_KEY`; the owner adds ~$5 of fal
-  credits (~125 images, ~15-20 test videos). FLUX stays available as a setting. Mock placeholders stay the default; real
-  images only with `--real`. Approved spend for the first live check: 1 test image + 1 real test video, nothing more without
-  asking. Not chosen: Google directly (no free tier for image models: our key got `limit: 0`; prepay minimum $30,
-  non-refundable). Never enable billing on the free text project (every text call would become paid). Hero clips stay
-  mock/off unless the owner asks.
+- **Providers (owner's decision, 2026-10-26): OpenAI for speed.** Yukdosh is stopped, so the shared OpenAI org gets $5:
+  the positive balance re-enables the data-sharing free daily tokens (~2.5M/day mini, ~250K/day large at tiers 1-2; the
+  model list is on the org's Data controls -> Sharing page) for text; RAG embeddings stay on gemini-embedding-2 (owner's
+  choice, 2026-10-26); real images from GPT Image 2 (low ~$0.005, medium ~$0.041/image), paid from the $5, need **organization
+  verification**. Fallback for images: Nano Banana on fal (`fal-ai/nano-banana`, $0.0398/image, 9:16). Gemini image models
+  have no free tier (our key got `limit: 0`; Google prepay minimum $30). Never enable billing on the Gemini text project.
+  If Yukdosh ever restarts on the same org it would eat the free tokens and the $5: give it its own org first.
+  Real images only with the owner's explicit go (earlier approval: 1 test image + 1 real test video). Hero clips mock/off.
 - **Keep the OpenAI path intact** (SDK, `PROVIDERS["openai"]`, key `shortsmith-dev`, prices). The OpenAI org
   ("Personal", shared with the owner's production project Yukdosh) is at $0 since 2026-10-18
   (`429 credit_balance_exhausted`). Switch back later with `LLM_PROVIDER=openai` after adding credits.
@@ -113,8 +116,9 @@ chat interrupted my flow, so each phase now runs like this:
 
 ## Current progress
 Update this line at the end of every step:
-**Current phase/step:** Phase 9 next (automation & deploy). Next build queued: images via Nano Banana on fal
-(see Gotchas; owner adds ~$5 on fal first, and is also weighing OpenAI $5 for images + free daily LLM tokens).
+**Current phase/step:** Phase 9 next (automation & deploy). Building now (2026-10-26): the OpenAI switch
+(owner adds $5 to the OpenAI org: free daily data-sharing tokens for text, GPT Image 2 for real images; RAG embeddings stay
+on Gemini by the owner's choice; Gemini and fal stay as settings; real images only after the owner's go).
 Phase 7 built 2026-10-24: the `shortsmith` command
 (`cli.py`, `console.py`, `views.py`, `runs.py`, `costs.py`, `budget.py`, `rerun.py`): make / resume / rerun-scene /
 list / show / cost / doctor / mcp, `--budget` (list price, exit 4), guarded `--real`, `--json`; commit 04cfd7e (code) +
