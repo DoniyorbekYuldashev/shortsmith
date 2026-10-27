@@ -7,7 +7,7 @@ part of it.
 The roles, and the settings that choose them (highest first):
 - text (researcher, writer, director, revise): SHORTSMITH_<ROLE>_MODEL, else LLM_PROVIDER's default_model
 - critic: --critic-model / SHORTSMITH_CRITIC_MODEL, else LLM_PROVIDER's critic_model
-- embeddings (the RAG index): SHORTSMITH_EMBEDDING_MODEL, else EMBEDDING_PROVIDER's (independent of LLM_PROVIDER)
+- embeddings (the RAG index): always gemini-embedding-2, whatever LLM_PROVIDER says (owner's choice, 2026-10-26)
 - images: MOCK_MEDIA=1 -> placeholders; with --real, IMAGE_PROVIDER (openai / fal / mock) and its model settings
 """
 
@@ -18,8 +18,8 @@ from pydantic import BaseModel
 from shortsmith import costs, llm
 
 KEYS = {  # what each key is for
-    "OPENAI_API_KEY": "OpenAI: text (LLM_PROVIDER=openai), embeddings (EMBEDDING_PROVIDER=openai), images (IMAGE_PROVIDER=openai)",
-    "GEMINI_API_KEY": "Gemini: text (LLM_PROVIDER=gemini), embeddings (EMBEDDING_PROVIDER=gemini)",
+    "OPENAI_API_KEY": "OpenAI: text (LLM_PROVIDER=openai), images (IMAGE_PROVIDER=openai)",
+    "GEMINI_API_KEY": "Gemini: text (LLM_PROVIDER=gemini), and the RAG embeddings (always)",
     "FAL_KEY": "fal.ai: hero clips, and images with IMAGE_PROVIDER=fal (--real)",
     "YOUTUBE_API_KEY": "trend research (--research)",
 }
@@ -69,7 +69,7 @@ def setup() -> Setup:
     model = llm.embedding_model()
     p = llm.provider_of(model)
     roles.append(Role(role="embeddings", provider=p, model=model, key_env=_key(p), key_set=keys[_key(p)],
-                      detail=f"{llm.EMBED_DIMENSIONS} numbers a vector; EMBEDDING_PROVIDER={llm.embedding_provider()}"))
+                      detail=f"{llm.EMBED_DIMENSIONS} numbers a vector; the RAG index, Gemini whatever LLM_PROVIDER says"))
     real = images.source(real=True)
     roles.append(Role(role="images (--real)", provider=real.provider, model=real.model, key_env=real.key_env,
                       key_set=keys[real.key_env] if real.key_env else True,

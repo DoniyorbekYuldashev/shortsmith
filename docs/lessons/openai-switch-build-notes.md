@@ -1,24 +1,22 @@
-# OpenAI switch build notes (side step after Phase 8: text, embeddings and real images on OpenAI)
+# OpenAI switch build notes (side step after Phase 8: text and real images on OpenAI)
 
 Written by the build session for the teaching session. Everything below happened on this machine (Windows 11
 Home with Smart App Control on, Windows PowerShell 5.1, Python 3.12, uv 0.13.1, Node 24, Docker Desktop 29.4.0,
-openai SDK as locked in `uv.lock`, no new packages) on 2026-10-26. Money spent: **$0**. OpenAI: one free
+openai SDK as locked in `uv.lock`, no new packages) on 2026-10-26, with a scope change on 2026-10-27 (§5). Money spent: **$0**. OpenAI: one free
 `models.list`, 2 chat requests refused with 429 (not billed, not in the ledger). Gemini: 0 calls. Images: 0.
 
-**Done-check, in one paragraph.** The code is done and tested offline: every role has its own model setting
-(text roles default to **gpt-5-mini**, the critic to **gpt-5.1** when `LLM_PROVIDER=openai`), a model always goes
-to its own provider's address and key, embeddings have their own `EMBEDDING_PROVIDER` (default **gemini**,
-unchanged), real images have `IMAGE_PROVIDER` (default **openai gpt-image-2, low, 1024x1536 cropped to 9:16**;
-`fal` with Nano Banana or FLUX; `mock`), and "billed" understands **OpenAI's free daily data-sharing tokens**
-(`OPENAI_DATA_SHARING=1`: $0 within the day's allowance per model group, list price beyond, 00:00 UTC), shown in
-`shortsmith cost`, `/health` and the web page, with an optional stop before a run passes it. **Live check a
+**Done-check, in one paragraph.** The owner wants OpenAI for exactly two things: **text** on the data-sharing
+free daily tokens, and **real images** from GPT Image 2. Both are built and tested offline. Every role has its
+own model setting (text roles default to **gpt-5-mini**, the critic to **gpt-5.1** when `LLM_PROVIDER=openai`),
+and a model always goes to its own provider's address and key. "Billed" understands **OpenAI's free daily
+tokens** (`OPENAI_DATA_SHARING=1`: $0 within the day's allowance per model group, list price beyond, 00:00 UTC),
+shown in `shortsmith cost`, `/health` and the web page, with an optional stop before a run passes it. Real
+images have `IMAGE_PROVIDER` (default **openai gpt-image-2, low, 1024x1536 cropped to 9:16**; `fal` with Nano
+Banana or FLUX; `mock`), only with `--real`; 0 were made. **The RAG embeddings stay on gemini-embedding-2 (768)
+by the owner's choice**, whatever `LLM_PROVIDER` says: no embedding switch, no OpenAI index (§5). **Live check a
 failed as the brief foresaw:** `429 insufficient_quota / credit_balance_exhausted` ("You have no credits
-remaining"), so **the owner's $5 is not in the OpenAI org yet**; checks b (OpenAI embeddings eval, one mock run
-on OpenAI) and c (images) were not run. The embedding comparison's **Gemini row is measured** (0 API calls:
-stored vectors + cached queries): **hit@1 0.88, hit@3 0.94, MRR 0.914** (en 0.920, ru 1.000, uz 0.833); the four
-OpenAI rows run with one command once the credit is in. **Recommended embedding default: keep Gemini** (the
-owner's choice in CLAUDE.md too); the OpenAI numbers can only argue for a change, and embeddings were never the
-slow step. Tests: **506 pass with the database** (474 before + 32), **484 pass + 22 skipped without it**; web:
+remaining"), so **the owner's $5 is not in the OpenAI org yet**; the mock run on OpenAI (b) and images (c) were
+not run. Tests: **505 pass with the database** (474 before + 31), **483 pass + 22 skipped without it**; web:
 typecheck, build, 9 tests. One optional exercise: `exercises/openai-switch/` (the allowance math, 5 tests).
 
 **Three things the lesson should not miss:**
@@ -27,8 +25,8 @@ typecheck, build, 9 tests. One optional exercise: `exercises/openai-switch/` (th
    (`costs.Billing`), even when you only want one run's total. A per-line function (the old `billed_usd(entry)`)
    can't answer it (§3).
 2. **A model name decides its provider.** `provider_of("gemini-...")` is Google, anything else OpenAI, so the
-   writer can be on OpenAI while the critic or the embeddings stay on Gemini, and a Gemini model name is never
-   sent to OpenAI's address with OpenAI's key (§2, D2).
+   writer can be on OpenAI while the critic or the RAG embeddings stay on Gemini, and a Gemini model name is
+   never sent to OpenAI's address with OpenAI's key (§2, §5, D2).
 3. **Prefix matching for prices was a silent-money bug waiting to happen.** With `gpt-5` in the price table,
    "longest prefix" would have priced `gpt-5.5` (4x dearer) and `gpt-5-pro` (12x) as gpt-5 without a word.
    Prices are now looked up by the exact model after cutting only a trailing snapshot date (§2, D7).
@@ -37,8 +35,8 @@ typecheck, build, 9 tests. One optional exercise: `exercises/openai-switch/` (th
 
 | file | what changed |
 |---|---|
-| `llm.py` | `Provider.critic_model`; `provider_name()`, `provider_of(model)`, `ROLES`, `role_model()`, `model_for(step)`; `embedding_provider()` / `embedding_model()`; `reasoning_effort(model)` (`OPENAI_REASONING_EFFORT`, default `low`); `_client(name)` one client per provider; `NoCreditError` (OpenAI's "no credit" 429, never retried); `min_interval()` (4.5 s spacing on Gemini only); a temperature for an OpenAI reasoning model fails before sending |
-| `ledger.py` | OpenAI list prices (gpt-4.1/-nano, gpt-5/-mini/-nano, gpt-5.1, gpt-5.4/-mini/-nano, gpt-6-luna, text-embedding-3-large), `IMAGE_TOKEN_PRICES`, `IMAGE_PRICES`, Nano Banana in `MEDIA_PRICES`; `base_model()`; exact price lookup |
+| `llm.py` | `Provider.critic_model`; `provider_name()`, `provider_of(model)`, `ROLES`, `role_model()`, `model_for(step)`; `embedding_model()` (always Gemini's); `reasoning_effort(model)` (`OPENAI_REASONING_EFFORT`, default `low`); `_client(name)` one client per provider; `NoCreditError` (OpenAI's "no credit" 429, never retried); `min_interval()` (4.5 s spacing on Gemini only); a temperature for an OpenAI reasoning model fails before sending |
+| `ledger.py` | OpenAI list prices (gpt-4.1/-nano, gpt-5/-mini/-nano, gpt-5.1, gpt-5.4/-mini/-nano, gpt-6-luna), `IMAGE_TOKEN_PRICES`, `IMAGE_PRICES`, Nano Banana in `MEDIA_PRICES`; `base_model()`; exact price lookup |
 | `costs.py` | `FREE_GROUPS`, `FREE_DAILY_TOKENS`, `Allowance` / `allowance()`, `free_group()`, `allowance_day()` (UTC), `Billing` (the running total), `billing_note()`, `used_today()`, `allowance_today()` -> `GroupToday` / `AllowanceToday` in `Quotas.openai`; `CostReport.billing` |
 | `budget.py` | `node_calls` per role; `same_calls` (exact model match for the history); images priced by `images.price_per_image()`; `RunEstimate.image_source`; `allowance_check()` + `FreeAllowanceReached` (warn or stop before a node) |
 | `media/images.py` | `IMAGE_PROVIDER` (openai / fal / mock), `ImageSource` / `source()` / `price_per_image()`, `openai_price()`, the OpenAI path (`openai_request`, `usage_cost`, `fit_portrait`, `_openai`), `VerificationRequired` (the 403), fal by model (`fal_arguments`: Nano Banana 9:16 or FLUX's preset) |
@@ -48,7 +46,6 @@ typecheck, build, 9 tests. One optional exercise: `exercises/openai-switch/` (th
 | `views.py` | estimate lines name the image source; billing note; the OpenAI allowance table in `cost` |
 | `api.py`, `events.py`, `jobs.py` | `Health.billing`, `.setup`, `.allowance`; `RunStarted.billing`; the web still forces mock media |
 | `runs.py` | billed figures from one whole-ledger `Billing` |
-| `research/eval_retrieval.py` | `--models`: Gemini vs OpenAI embeddings (§5) |
 | `rag.py`, `migrate.py`, `mcp_server.py`, `graph.py`, `make.py`, `prompt_eval.py` | `llm.embedding_model()`, `critic.critic_model()`, the image source's label |
 | `web/` | regenerated types; the home page's Setup table shows each role, the billing line and today's free tokens; Costs shows the billing line |
 | `.env.example`, `README.md` | every new setting; a "Providers" table, how to switch for one run, the free-tokens paragraph |
@@ -61,7 +58,7 @@ typecheck, build, 9 tests. One optional exercise: `exercises/openai-switch/` (th
 |---|---|---|---|
 | researcher, writer, writer-pick, director, revise | gemini-3.5-flash-lite | **gpt-5-mini**, reasoning effort low | $0.25 / $0.025 / $2.00 |
 | critic (4 frames, vision) | gemini-3.8-flash | **gpt-5.1**, reasoning effort low | $1.25 / $0.125 / $10.00 |
-| embeddings | gemini-embedding-2 @768 (`EMBEDDING_PROVIDER`, default gemini) | text-embedding-3-small @768 | $0.02 |
+| embeddings (the RAG index) | gemini-embedding-2 @768 | gemini-embedding-2 @768 (unchanged: §5) | free tier |
 | images (`--real`) | n/a | **gpt-image-2, low, 1024x1536** (`IMAGE_PROVIDER`, default openai) | $5 text in, $30 image out; ~$0.005 an image |
 
 Prices: developers.openai.com/api/docs/pricing, read on 2026-10-26 (the old `platform.openai.com/docs/pricing`
@@ -200,54 +197,40 @@ budget's meaning since Phase 7 ("what it would cost without free tiers"); the ru
   failed only after the images were paid for.
 - Hero clips: unchanged (mock, or fal after the approval question).
 
-## 5. Embeddings: settings, tables, the comparison
+## 5. Embeddings stay on Gemini (scope change, 2026-10-27)
 
-- `EMBEDDING_PROVIDER` (`gemini` default | `openai`) and `SHORTSMITH_EMBEDDING_MODEL`, independent of
-  `LLM_PROVIDER`: switching the chat provider no longer moves the RAG index. The model goes to its own provider
-  (an OpenAI embedding model reaches OpenAI even with `LLM_PROVIDER=gemini`).
-- Tables stay one per model and size: `kb_gemini_embedding_2_768` (unchanged, 79 rows) and, once made,
-  `kb_text_embedding_3_small_768`. Both models shorten to 768 numbers (OpenAI's `dimensions` parameter).
-- `python -m shortsmith.research.eval_retrieval --models` (new): for gemini-embedding-2 @768,
-  text-embedding-3-small @768 and @1536, text-embedding-3-large @768 and @3072, it indexes the 79 chunks (the two
-  "stored" ones into pgvector via `KnowledgeBase.sync()`, the rest into `.cache/`), embeds the 22 query texts
-  (cached), ranks exactly by cosine, and prints hit@1 / hit@3 / MRR overall and **per language** (11 en, 3 uz,
-  2 ru queries), plus the six Phase 5 example queries' top-k per model, how many ids each shares with Gemini's,
-  and whether pgvector's own top-k equals the exact ranking. Everything is cached: a re-run makes 0 calls.
-  Expected cost of the first full run: ~$0.003 (5 setups x ~10k tokens; most of it text-embedding-3-large).
+The first brief also asked for an `EMBEDDING_PROVIDER` switch, an OpenAI index and a Gemini-vs-OpenAI retrieval
+comparison. **The owner dropped that part**: the RAG embeddings stay on gemini-embedding-2 at 768 numbers, in the
+existing table `kb_gemini_embedding_2_768`. The first commit (33f9708) had built the switch and an
+`eval_retrieval --models` mode (default Gemini; only the Gemini row was ever run, from stored vectors and cached
+queries, 0 API calls; no OpenAI index was made). The follow-up commit removes them: `eval_retrieval.py` is back
+to its pre-switch version, there is no `EMBEDDING_PROVIDER` or `SHORTSMITH_EMBEDDING_MODEL`, and the
+text-embedding-3-large price is gone.
 
-**Measured so far (2026-10-26, 0 API calls):**
-
-| model | dims | hit@1 | hit@3 | MRR | MRR en (11) | MRR ru (2) | MRR uz (3) | embedded |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| gemini-embedding-2 | 768 | 0.88 | 0.94 | 0.914 | 0.920 | 1.000 | 0.833 | 0 |
-| text-embedding-3-small | 768 | waiting for the $5 | | | | | | |
-| text-embedding-3-small | 1536 | waiting | | | | | | |
-| text-embedding-3-large | 768 | waiting | | | | | | |
-| text-embedding-3-large | 3072 | waiting | | | | | | |
-
-Gemini's single miss is Phase 5's ("the viewer imagines being there themselves" -> visual/the-impossible-angle),
-and pgvector's top-k equals the exact ranking for all six example queries. **Recommendation: keep Gemini as the
-default** (the owner already chose it in CLAUDE.md). OpenAI's v3 models are older and known to be weaker
-cross-lingually; Uzbek is where Gemini already drops to 0.833, and that's the comparison to read first. Change
-the default only if an OpenAI row beats Gemini, Uzbek included. Embeddings were never the slow step either: one
-query embedding is ~1 s, while Gemini's critic takes minutes (§7).
+One thing had to stay, and it is the reason for a one-line change in `rag.py` and `migrate.py`: before this
+step the index's model followed the chat provider (`llm.provider().embedding_model`), so `LLM_PROVIDER=openai`
+would have silently built a new OpenAI index on the first `--research` run. Now `llm.embedding_model()` always
+returns Gemini's model, and `provider_of()` sends it to Google's address with Google's key, so text on OpenAI
+and the index on Gemini live side by side. Consequence: `--research` needs `GEMINI_API_KEY` even with
+`LLM_PROVIDER=openai` (preflight and doctor check it). A test pins both halves
+(`test_the_rag_embeddings_stay_on_gemini_whatever_the_text_provider`). `PROVIDERS["openai"].embedding_model` and
+its price stay, untouched, with the rest of the OpenAI path.
 
 ## 6. Wiring: doctor, /health, the web
 
-`shortsmith doctor` on this machine (real output, keys never printed; `.env` has `LLM_PROVIDER=gemini`):
+`shortsmith doctor` on this machine with `LLM_PROVIDER=openai` set for the command (real output, keys never
+printed):
 
 ```
-| LLM_PROVIDER    | -  | gemini
-| text            | ok | gemini: gemini-3.5-flash-lite (researcher, writer, director, revise)
-| critic          | ok | gemini: gemini-3.8-flash (vision: judges 4 frames)
-| embeddings      | ok | gemini: gemini-embedding-2 (768 numbers a vector; EMBEDDING_PROVIDER=gemini)
+| LLM_PROVIDER    | -  | openai
+| text            | ok | openai: gpt-5-mini (researcher, writer, director, revise; reasoning effort low)
+| critic          | ok | openai: gpt-5.1 (vision: judges 4 frames; reasoning effort low)
+| embeddings      | ok | gemini: gemini-embedding-2 (768 numbers a vector; the RAG index, Gemini whatever LLM_PROVIDER says)
 | images (--real) | -  | openai: gpt-image-2 (low, 1024x1536, ~$0.0050 an image; now: placeholders (MOCK_MEDIA=1))
-| OPENAI_API_KEY  | -  | set; OpenAI: text (LLM_PROVIDER=openai), embeddings (EMBEDDING_PROVIDER=openai), images (IMAGE_PROVIDER=openai)
-| GEMINI_API_KEY  | ok | set; Gemini: text (LLM_PROVIDER=gemini), embeddings (EMBEDDING_PROVIDER=gemini)
+| OPENAI_API_KEY  | ok | set; OpenAI: text (LLM_PROVIDER=openai), images (IMAGE_PROVIDER=openai)
+| GEMINI_API_KEY  | ok | set; Gemini: text (LLM_PROVIDER=gemini), and the RAG embeddings (always)
 | FAL_KEY         | -  | set; fal.ai: hero clips, and images with IMAGE_PROVIDER=fal (--real)
 | YOUTUBE_API_KEY | -  | set; trend research (--research)
-| billing         | -  | Gemini free tier: LLM calls billed $0 (costs shown are list price)
-| free tokens     | -  | data sharing off; 2,500,000 mini + 250,000 large a day; past them: warn (OPENAI_DATA_SHARING=default, ...)
 ```
 
 A key row is `ok`/`FAIL` when a text, critic or embeddings model needs it, information otherwise; a role row
@@ -273,19 +256,23 @@ the CLI's hint is "add credit in the OpenAI dashboard (Settings -> Billing), the
 `paced()` doesn't retry it, and 0 ledger lines were added. The call still took **3.8 s**: the OpenAI SDK's own
 two retries (it retries every 429 unless the server says not to). **Stopped here, per the brief: b and c not run.**
 
+The teaching session probed the same key afterwards (free, $0 balance): chat gpt-4.1-mini, gpt-image-2 and
+gpt-image-1-mini all answered `429 credit_balance_exhausted / insufficient_quota`. The key and the org are valid,
+and the balance check comes before any verification check, so **whether the org is verified for GPT Image is
+unknown until the owner pays**; the first image request after the go will say (a 403 becomes the one-line
+"verify your organization" error, §4).
+
 **When the $5 is in** (terminal, repo root, PowerShell; refresh PATH first), the remaining checks are:
 
 ```powershell
 # a. one tiny call (prints model, tokens, price, seconds)
 $env:LLM_PROVIDER = "openai"; uv run --env-file .env python -m shortsmith.llm "coffee shop in Tashkent"; Remove-Item Env:LLM_PROVIDER
-# b1. embeddings: re-index with text-embedding-3-small and compare (~$0.003, then cached)
-uv run --env-file .env python -m shortsmith.research.eval_retrieval --models
-# b2. one full mock-media run on OpenAI (~10 calls: researcher off, writer 2, director 1, critic <=3, revise <=2)
+# b. one full mock-media run on OpenAI (~10 calls: researcher off, writer 2, director 1, critic <=3, revise <=2)
 $env:LLM_PROVIDER = "openai"; uv run shortsmith make "coffee shop in Tashkent" --approve no; Remove-Item Env:LLM_PROVIDER
 ```
 
 **Speed: Gemini's side of the table** (from runs already in the ledger and checkpoints, `shortsmith show`),
-OpenAI's column to be filled by b2:
+OpenAI's column to be filled by b:
 
 | node | Gemini run 2026-10-25_144556 (s) | Gemini run 2026-10-24_182435 (s) | OpenAI (s) |
 |---|---:|---:|---:|
@@ -337,7 +324,11 @@ alone and in every later full run. Not touched.
 
 **E7. Live check a: 429 `credit_balance_exhausted`** (§7): expected, handled, the reason the live part stops here.
 
-**E8 (tooling, not the code).** A bash heredoc with a Python test containing `can't` in a string broke the shell's
+**E8. Scope change after the first commit (2026-10-27).** The owner dropped the OpenAI-embeddings part
+(§5). Found: a message from the teaching session. Fix: the switch and the `--models` evaluation were removed in a
+follow-up commit, the embeddings pinned to Gemini, one test replaced (506 -> 505 with the database).
+
+**E9 (tooling, not the code).** A bash heredoc with a Python test containing `can't` in a string broke the shell's
 quoting (`unexpected EOF while looking for matching '`); the new tests were written to a file and appended instead.
 
 ## 9. Design decisions
@@ -359,8 +350,8 @@ quoting (`unexpected EOF while looking for matching '`); the new tests were writ
 - **D9. Data sharing off by default; the groups and amounts are settings or a documented table**, because only
   the org's Sharing page knows.
 - **D10. Past the allowance: warn by default, stop on request**, stopping like a budget stop (exit 4, resumable).
-- **D11. `EMBEDDING_PROVIDER` defaults to gemini**: the index doesn't move when the chat provider does; the
-  owner's choice, and nothing measured argues otherwise yet.
+- **D11. The RAG embeddings are always Gemini's** (owner's choice): `llm.embedding_model()` has no setting, and
+  the index doesn't move when the chat provider does (§5). An embedding switch was built, then removed.
 - **D12. Images: openai by default for real runs, mock unless `--real`, crop on save, price from usage**, ledger
   line before the picture is decoded.
 - **D13. `providers.py` for doctor and /health**: one function, so the two can't disagree.
@@ -370,11 +361,10 @@ quoting (`unexpected EOF while looking for matching '`); the new tests were writ
 
 ## 10. Tests
 
-New (32): `test_llm.py` 11 (roles and defaults; a Gemini critic reaches Gemini's client while
+New (31): `test_llm.py` 10 (roles and defaults; a Gemini critic reaches Gemini's client while
 `LLM_PROVIDER=openai`; reasoning effort only for OpenAI reasoning models; reasoning inside completion priced once;
 no credit not retried and not recorded; spacing only on Gemini; all 7 schemas meet OpenAI's strict rules; the
-embedding provider independent of the chat provider and routed to its own client; one table per model and size;
-exact prices for dated names and none for gpt-5.5 / gpt-5-pro / gpt-5.1-codex-max; temperature refused for a
+RAG embeddings stay on Gemini and reach Gemini's client whatever LLM_PROVIDER says; exact prices for dated names and none for gpt-5.5 / gpt-5-pro / gpt-5.1-codex-max; temperature refused for a
 reasoning model), `test_budget.py` 8 (free within / billed beyond, the crossing call's share; per group and
 00:00 UTC, Tashkent's 04:59 still the previous day; off = list price; models outside the groups; the allowance view;
 the report bills $0; warn / stop / off before a node; the whole-run estimate with gpt-image-2 low and medium),
@@ -386,7 +376,7 @@ messages and exit 4; `--real` needs FAL_KEY for a hero clip and the image provid
 (`/health` roles, keys as booleans, today's allowance, no secret anywhere; the web stays mock with
 `MOCK_MEDIA=0` and `IMAGE_PROVIDER=openai`).
 
-Results: `uv run pytest` **484 passed, 22 skipped**; `uv run --env-file .env pytest` **506 passed**; web
+Results: `uv run pytest` **483 passed, 22 skipped**; `uv run --env-file .env pytest` **505 passed**; web
 `npm run typecheck` clean, `npm run build` ok, `npm test` 9 passed; `uv run pytest exercises/openai-switch`
 5 fail with NotImplementedError by design (a reference solution passes all 5).
 
@@ -413,8 +403,8 @@ Results: `uv run pytest` **484 passed, 22 skipped**; `uv run --env-file .env pyt
 - After the $5: switch text with `LLM_PROVIDER=openai` (defaults gpt-5-mini; critic gpt-5.1; reasoning effort
   low). Turn on `OPENAI_DATA_SHARING=1` only after the Sharing page says eligible (and set the two
   `OPENAI_FREE_DAILY_TOKENS_*` to what it shows). OpenAI's free day starts 00:00 UTC (05:00 in Tashkent).
-- `EMBEDDING_PROVIDER` is separate from `LLM_PROVIDER` (default gemini); switching it builds a new table
-  (`kb_text_embedding_3_small_768`) on first use (~9.4k tokens, ~$0.0002).
+- The RAG embeddings are always gemini-embedding-2, whatever `LLM_PROVIDER` says: `--research` needs
+  `GEMINI_API_KEY` even with text on OpenAI.
 - Real images: `IMAGE_PROVIDER=openai` (default for `--real`), `OPENAI_IMAGE_QUALITY=low` (~$0.005) / medium
   (~$0.041); 1024x1536 is cropped to 864x1536. A 403 means "verify the organization". Nano Banana stays
   available with `IMAGE_PROVIDER=fal` (`FAL_IMAGE_MODEL`). `--real` needs `FAL_KEY` too unless `--hero-clips 0`.
@@ -428,8 +418,8 @@ Results: `uv run pytest` **484 passed, 22 skipped**; `uv run --env-file .env pyt
 **PLAN.md §3, the table:**
 - LLM: "OpenAI gpt-5-mini (text) + gpt-5.1 (critic), $0 within the data-sharing free daily tokens; Gemini free
   tier kept behind `LLM_PROVIDER=gemini`".
-- Embeddings: "gemini-embedding-2 @768 (`EMBEDDING_PROVIDER`); OpenAI text-embedding-3-small as a setting (numbers
-  from `eval_retrieval --models`)".
+- Embeddings: "gemini-embedding-2 @768, whatever `LLM_PROVIDER` says" (the "OpenAI's model stays behind
+  `LLM_PROVIDER=openai`" note goes: it no longer follows the chat provider).
 - Images: "OpenAI gpt-image-2, low ~$0.005 / medium ~$0.041 per 1024x1536 image (verified org needed); fal Nano
   Banana $0.0398 or FLUX ~$0.003 as settings": **~$0.03 per video at low** (6 images), ~$0.25 at medium.
 - The cost-per-video line: images-only at low ≈ $0.03 ($5 ≈ 160 videos); with a hero clip ≈ $0.28-0.63.

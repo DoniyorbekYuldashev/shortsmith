@@ -7,7 +7,7 @@ format, so switching provider only changes the address, the key and the model na
 
 Which model a call uses: the caller's, else its role's (model_for: SHORTSMITH_<ROLE>_MODEL, else
 LLM_PROVIDER's defaults). Which address and key: the model's own provider (provider_of), so roles
-can live on different providers and embeddings follow EMBEDDING_PROVIDER, not LLM_PROVIDER.
+can live on different providers, and the RAG embeddings stay on Gemini whatever LLM_PROVIDER says.
 """
 
 import argparse
@@ -92,21 +92,11 @@ def model_for(step: str) -> str:
     return role_model(ROLES[step]) if step in ROLES else provider().default_model
 
 
-EMBEDDING_PROVIDER_DEFAULT = "gemini"  # see embedding_provider()
-
-
-def embedding_provider() -> str:
-    """EMBEDDING_PROVIDER, independent of LLM_PROVIDER: the index belongs to one embedding model, and the
-    chat provider can change without re-indexing anything."""
-    name = os.environ.get("EMBEDDING_PROVIDER", EMBEDDING_PROVIDER_DEFAULT).strip() or EMBEDDING_PROVIDER_DEFAULT
-    if name not in PROVIDERS:
-        raise ValueError(f"EMBEDDING_PROVIDER={name!r}, expected one of {sorted(PROVIDERS)}")
-    return name
-
-
 def embedding_model() -> str:
-    """The model behind the RAG index: SHORTSMITH_EMBEDDING_MODEL, else the embedding provider's."""
-    return os.environ.get("SHORTSMITH_EMBEDDING_MODEL", "").strip() or PROVIDERS[embedding_provider()].embedding_model
+    """The model behind the RAG index: always Gemini's (owner's choice, 2026-10-26), whatever LLM_PROVIDER says.
+    The index belongs to one embedding model (kb_gemini_embedding_2_768), so switching the text provider to
+    OpenAI must not move it; provider_of() sends it to Google's address with Google's key."""
+    return PROVIDERS["gemini"].embedding_model
 
 
 # OpenAI's reasoning models think before answering; how much is a request setting. "low" for every role:

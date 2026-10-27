@@ -28,7 +28,7 @@ def gemini(monkeypatch):
     monkeypatch.setenv("MOCK_MEDIA", "1")
     monkeypatch.delenv("GEMINI_TIER", raising=False)
     for name in ("IMAGE_PROVIDER", "OPENAI_IMAGE_MODEL", "OPENAI_IMAGE_QUALITY", "OPENAI_IMAGE_SIZE", "FAL_IMAGE_MODEL",
-                 "EMBEDDING_PROVIDER", "SHORTSMITH_EMBEDDING_MODEL", *costs.ALLOWANCE_SETTINGS):
+                 *costs.ALLOWANCE_SETTINGS):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(budget.critic, "CRITIC_MODEL", "gemini-3.8-flash")
 

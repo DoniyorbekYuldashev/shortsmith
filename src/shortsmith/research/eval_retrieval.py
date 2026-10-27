@@ -22,13 +22,6 @@ queries, and the Phase 5 example queries, through Chroma's and Postgres's indexe
 cosine ranking of the stored vectors. It embeds only the queries (22 texts), once: their vectors
 are cached in .cache/, so a re-run makes no API call.
     uv run --env-file .env python -m shortsmith.research.eval_retrieval --stores
-
---models compares embedding models (the OpenAI switch, 2026-10-26): gemini-embedding-2 against OpenAI's
-text-embedding-3-small and -large, at 768 numbers and at their full size. The same 16 queries (with a
-score per language: en, uz, ru) and the Phase 5 example queries, ranked by exact cosine. The models
-marked "stored" are indexed in pgvector as rag.py would (text-embedding-3-small@768 becomes a real
-table next to Gemini's); every vector is kept (pgvector or .cache/), so a re-run makes no API call.
-    uv run --env-file .env python -m shortsmith.research.eval_retrieval --models
 """
 
 import argparse
@@ -216,160 +209,11 @@ def main_stores() -> None:
     print(f"\nsaved: {path}")
 
 
-# --- --models: one embedding model against another (the OpenAI switch, 2026-10-26) --------------------------
-
-# (model, vector size, kept in pgvector). A stored index is the real one rag.py would use (synced, so only
-# missing chunks are embedded); the others are embedded into the cache below and ranked here in Python.
-MODELS: list[tuple[str, int, bool]] = [
-    ("gemini-embedding-2", 768, True),
-    ("text-embedding-3-small", 768, True),
-    ("text-embedding-3-small", 1536, False),
-    ("text-embedding-3-large", 768, False),
-    ("text-embedding-3-large", 3072, False),
-]
-QUERY_LANGUAGE = {q: lang for q, lang in [  # the rest are English
-    ("Bozordagi bir chol menga muhim maslahat berdi", "uz"),
-    ("Bir hafta tajriba qildim, natijasi qanday bo'ldi?", "uz"),
-    ("Samarqandga borishdan oldin bilish kerak bo'lgan narsalar ro'yxati", "uz"),
-    ("Раньше всё стоило дешевле, помните?", "ru"),
-    ("Покажите ремесло крупным планом, медленно и ритмично", "ru"),
-]}
-
-
-def vector_cache(model: str, dimensions: int) -> Path:
-    return Path(".cache") / f"query-vectors-{model}-{dimensions}.json"  # gitignored; embedded text -> vector
-
-
-def cached_vectors(texts: list[str], model: str, dimensions: int) -> tuple[list[list[float]], int, float]:
-    """Vectors for these exact texts, embedding only the ones not cached yet: (vectors, embedded now, USD)."""
-    cache = vector_cache(model, dimensions)
-    known: dict[str, list[float]] = json.loads(cache.read_text(encoding="utf-8")) if cache.exists() else {}
-    missing = [t for t in dict.fromkeys(texts) if t not in known]
-    cost = 0.0
-    if missing:
-        result = llm.embed(missing, model, dimensions, step="rag-eval")
-        known.update(zip(missing, result.vectors, strict=True))
-        cost = result.cost_usd
-        cache.parent.mkdir(parents=True, exist_ok=True)
-        cache.write_text(json.dumps(known), encoding="utf-8")
-    return [known[t] for t in texts], len(missing), cost
-
-
-class LanguageScore(BaseModel):
-    queries: int
-    hit_at_1: float
-    hit_at_3: float
-    mrr: float
-
-
-class ExampleTop(BaseModel):
-    query: str
-    kind: str | None
-    brand: str | None
-    ids: list[str]  # nearest first
-    scores: list[float]
-    store_matches_exact: bool | None  # pgvector's own top-k == the exact ranking (None: not stored)
-
-
-class ModelResult(BaseModel):
-    model: str
-    dimensions: int
-    stored: bool  # the index lives in pgvector (rag.py would use it)
-    table: str | None
-    eval: SetupResult  # the 16 labelled queries
-    by_language: dict[str, LanguageScore]
-    examples: list[ExampleTop]  # the Phase 5 example queries
-    embedded_now: int  # texts sent to the API by this evaluation (0 on a re-run: cached or stored)
-    cost_usd: float
-
-
-def by_language(rankings: list[list[str]], owner: dict[str, str]) -> dict[str, LanguageScore]:
-    rows: dict[str, list[tuple[bool, bool, float]]] = {}
-    for (query, correct), ranked in zip(LABELLED, rankings, strict=True):
-        ok = [bool(set(owner[i].split("|")) & correct) for i in ranked]
-        rr = next((1 / (rank + 1) for rank, hit in enumerate(ok) if hit), 0.0)
-        rows.setdefault(QUERY_LANGUAGE.get(query, "en"), []).append((ok[0], any(ok[:3]), rr))
-    return {lang: LanguageScore(queries=len(r), hit_at_1=round(sum(a for a, _, _ in r) / len(r), 3),
-                                hit_at_3=round(sum(b for _, b, _ in r) / len(r), 3),
-                                mrr=round(sum(c for _, _, c in r) / len(r), 3)) for lang, r in sorted(rows.items())}
-
-
-def evaluate_model(model: str, dimensions: int, stored: bool) -> ModelResult:
-    """One model: index the 79 chunks (pgvector or the cache), embed the queries (cached), rank exactly."""
-    chunks = rag.load_chunks()
-    embedded, cost, table, kb = 0, 0.0, None, None
-    if stored:
-        kb = rag.KnowledgeBase(model=model, dimensions=dimensions)
-        report = kb.sync()  # embeds only what the table lacks: all 79 chunks the first time, 0 after
-        embedded, cost, table = report.added + report.changed, report.cost_usd, kb.store.name
-        records = kb.store.records()
-    else:
-        vectors, embedded, cost = cached_vectors([rag.document_text(c, model) for c in chunks], model, dimensions)
-        records = [stores.Record(**c.model_dump(), hash=rag.fingerprint(rag.document_text(c, model)), embedding=v)
-                   for c, v in zip(chunks, vectors, strict=True)]
-    texts = [rag.query_text(q, model) for q, *_ in EXAMPLES] + [rag.query_text(q, model) for q, _ in LABELLED]
-    if model == MODEL and dimensions == 768:  # Phase 5's cache: the same query texts, already embedded
-        query_vectors, now = cached_query_vectors(texts)
-        query_cost = 0.0
-    else:
-        query_vectors, now, query_cost = cached_vectors(texts, model, dimensions)
-    example_vectors, labelled_vectors = query_vectors[:len(EXAMPLES)], query_vectors[len(EXAMPLES):]
-
-    examples = []
-    for (query, kind, brand, k), v in zip(EXAMPLES, example_vectors, strict=True):
-        top = exact(records, v, k, kind, brand)
-        matches = [r.id for r in kb.nearest(v, k, kind, brand)] == [r.id for r in top] if kb else None
-        examples.append(ExampleTop(query=query, kind=kind, brand=brand, ids=[r.id for r in top],
-                                   scores=[r.similarity for r in top], store_matches_exact=matches))
-    hooks = [r for r in records if r.kind == "hook"]
-    owner, plain = {r.id: r.id for r in hooks}, {r.id: r.text for r in hooks}
-    rankings = [[r.id for r in exact(hooks, v, len(hooks), "hook", None)] for v in labelled_vectors]
-    return ModelResult(model=model, dimensions=dimensions, stored=stored, table=table,
-                       eval=score(f"{model} @{dimensions}", rankings, owner, plain, len(hooks), len(LABELLED)),
-                       by_language=by_language(rankings, owner), examples=examples, embedded_now=embedded + now,
-                       cost_usd=round(cost + query_cost, 6))
-
-
-def main_models(only: list[str] | None = None) -> None:
-    results = [evaluate_model(m, d, s) for m, d, s in MODELS if not only or m in only]
-    path = Path("runs/experiments") / f"embedding_models_{datetime.now():%Y-%m-%d_%H%M%S}.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps([r.model_dump() for r in results], indent=2, ensure_ascii=False), encoding="utf-8")
-    langs = sorted({lang for r in results for lang in r.by_language})
-    print(f"{'model':<30}{'dims':>6}{'hit@1':>7}{'hit@3':>7}{'MRR':>7}" + "".join(f"{f'MRR {g}':>9}" for g in langs)
-          + f"{'embedded':>10}{'USD':>10}")
-    for r in results:
-        print(f"{r.model:<30}{r.dimensions:>6}{r.eval.hit_at_1:>7.2f}{r.eval.hit_at_3:>7.2f}{r.eval.mrr:>7.3f}"
-              + "".join(f"{r.by_language[g].mrr:>9.3f}" for g in langs) + f"{r.embedded_now:>10}{r.cost_usd:>10.6f}")
-    for r in results:
-        if r.eval.misses:
-            print(f"\n{r.model} @{r.dimensions}: not in the top 3:\n  " + "\n  ".join(r.eval.misses))
-    base = results[0]
-    print(f"\nPhase 5 example queries: top-k ids, and how many each model shares with {base.model} @{base.dimensions}")
-    for n, (query, kind, brand, k) in enumerate(EXAMPLES):
-        where = f"kind={kind or 'any'}" + (f", brand={brand}" if brand else "")
-        print(f"\n{query!r} ({where}, k={k})")
-        for r in results:
-            ex = r.examples[n]
-            shared = len(set(ex.ids) & set(base.examples[n].ids))
-            store = "" if ex.store_matches_exact is None else f" | pgvector = exact: {ex.store_matches_exact}"
-            print(f"  {r.model[:22]:<22} @{r.dimensions:<5} {shared}/{k} shared{store}: "
-                  + ", ".join(f"{i} ({s:.3f})" for i, s in zip(ex.ids, ex.scores)))
-    print(f"\nsaved: {path}")
-
-
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Retrieval evaluation (Phase 5), --stores: Chroma vs pgvector, "
-                                                 "--models: Gemini vs OpenAI embeddings.")
+    parser = argparse.ArgumentParser(description="Retrieval evaluation (Phase 5), or --stores: Chroma vs pgvector.")
     parser.add_argument("--stores", action="store_true", help="compare the stores' indexes (embeds only the queries, once)")
-    parser.add_argument("--models", nargs="*", metavar="MODEL", default=None,
-                        help="compare embedding models (all of MODELS, or the ones named); vectors are cached")
-    args = parser.parse_args()
-    if args.stores:
+    if parser.parse_args().stores:
         main_stores()
-        return
-    if args.models is not None:
-        main_models(args.models)
         return
     chunks = [c for c in rag.load_chunks() if c.kind == "hook"]
     known = {c.id for c in chunks}

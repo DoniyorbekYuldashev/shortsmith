@@ -599,7 +599,7 @@ def test_doctor_shows_each_roles_provider_and_never_a_key(env, monkeypatch):
     rows = doctor_rows(result)
     assert "openai: gpt-5-mini (researcher, writer, director, revise; reasoning effort low)" in rows["text"]
     assert "openai: gpt-5.1" in rows["critic"] and "| ok " in rows["critic"]
-    assert "gemini: gemini-embedding-2 (768 numbers a vector; EMBEDDING_PROVIDER=gemini)" in rows["embeddings"]
+    assert "gemini: gemini-embedding-2 (768 numbers a vector; the RAG index, Gemini whatever LLM_PROVIDER says)"         in rows["embeddings"]
     assert "openai: gpt-image-2 (low, 1024x1536, ~$0.0050 an image; now: placeholders" in rows["images (--real)"]
     assert "| ok " in rows["OPENAI_API_KEY"] and "| ok " in rows["GEMINI_API_KEY"]  # both needed: text and the index
     assert "data sharing on; 2,500,000 mini + 250,000 large a day; past them: warn" in rows["free tokens"]

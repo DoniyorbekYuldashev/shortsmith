@@ -387,7 +387,7 @@ def create_app(trace: bool = True, origins: list[str] | None = None, max_queued:
                 found.append(Problem(message=f"{key} is not set (LLM_PROVIDER={name})",
                                      hint="put it in .env in the repo folder, then restart `shortsmith serve`"))
         except ValueError as e:
-            found.append(Problem(message=str(e), hint="LLM_PROVIDER and EMBEDDING_PROVIDER are gemini or openai; "
+            found.append(Problem(message=str(e), hint="LLM_PROVIDER is gemini or openai; "
                                                       "IMAGE_PROVIDER openai, fal or mock"))
         ffmpeg_ok = shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
         if not ffmpeg_ok:

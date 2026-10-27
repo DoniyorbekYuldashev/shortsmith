@@ -700,7 +700,7 @@ def store_rows() -> list[tuple[str, bool | None, str]]:
 
     try:
         s = stores.status(rag.collection_name(llm.embedding_model(), llm.EMBED_DIMENSIONS))
-    except ValueError as e:  # VECTOR_STORE or EMBEDDING_PROVIDER has a value we don't know
+    except ValueError as e:  # VECTOR_STORE has a value we don't know
         return [("vector store", False, str(e))]
     chosen = f"VECTOR_STORE={os.environ['VECTOR_STORE']}" if os.environ.get("VECTOR_STORE") else "the default"
     if s.backend == "chroma":
@@ -727,7 +727,7 @@ def provider_rows(providers: Any) -> list[tuple[str, bool | None, str]]:
 
     try:
         setup = providers.setup()
-    except ValueError as e:  # LLM_PROVIDER, EMBEDDING_PROVIDER or IMAGE_PROVIDER has a value we don't know
+    except ValueError as e:  # LLM_PROVIDER or IMAGE_PROVIDER has a value we don't know
         return [("providers", False, str(e))]
     rows: list[tuple[str, bool | None, str]] = [("LLM_PROVIDER", None, setup.llm_provider)]
     needed = {r.key_env for r in setup.roles if r.role in ("text", "critic", "embeddings")}

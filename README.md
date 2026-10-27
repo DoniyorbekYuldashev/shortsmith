@@ -41,7 +41,6 @@ already have a Chroma index from before, copy it instead: 0 requests.
 ```bash
 uv run --env-file .env python -m shortsmith.research.migrate                    # chroma/ -> Postgres
 uv run --env-file .env python -m shortsmith.research.eval_retrieval --stores    # both stores give the same results?
-uv run --env-file .env python -m shortsmith.research.eval_retrieval --models    # Gemini vs OpenAI embeddings
 ```
 
 ## Usage
@@ -79,7 +78,7 @@ in use, and whether each key is set, never its value):
 | text: researcher, writer, director, reviser | `LLM_PROVIDER` | `openai` (gpt-5-mini), `gemini` (gemini-3.5-flash-lite, free tier) |
 | the critic (sees the frames) | follows `LLM_PROVIDER`, or `SHORTSMITH_CRITIC_MODEL` / `--critic-model` | gpt-5.1; gemini-3.8-flash |
 | one role apart | `SHORTSMITH_WRITER_MODEL`, `_RESEARCHER_`, `_DIRECTOR_`, `_REVISE_` | any priced model; its name picks its provider |
-| embeddings (the RAG index) | `EMBEDDING_PROVIDER` | `gemini` (gemini-embedding-2), `openai` (text-embedding-3-small); each model has its own table |
+| embeddings (the RAG index) | none: always Gemini | gemini-embedding-2 at 768 numbers, whatever `LLM_PROVIDER` says (`--research` needs `GEMINI_API_KEY`) |
 | images with `--real` | `IMAGE_PROVIDER` | `openai` (gpt-image-2, `OPENAI_IMAGE_QUALITY=low`, 1024x1536 cropped to 9:16), `fal` (`FAL_IMAGE_MODEL`: Nano Banana or FLUX), `mock` |
 
 Switching text to OpenAI for one run, without editing `.env` (PowerShell):
@@ -94,11 +93,11 @@ and the web page then bill text calls $0 within the day's allowance (`OPENAI_FRE
 `_LARGE=250000`; 00:00 UTC) and at list price beyond it, and show today's use per group. The count is our own
 ledger's: OpenAI's counter can't be asked, and other projects in the same organization count there too.
 `OPENAI_FREE_LIMIT_ACTION=stop` stops a run (resumable) before a step would pass the allowance; `warn` (the
-default) only says so. Data sharing lets OpenAI train on the prompts: never send private data. Embeddings and
-images are never free. GPT Image models need a verified organization (Settings -> Organization -> General).
+default) only says so. Data sharing lets OpenAI train on the prompts: never send private data. Images are
+never free. GPT Image models need a verified organization (Settings -> Organization -> General).
 
 **Settings**, highest first: command-line flags > environment variables (`MOCK_MEDIA`, `SHORTSMITH_LANG`,
-`SHORTSMITH_BUDGET`, `SHORTSMITH_CRITIC_MODEL`, `LLM_PROVIDER`, `EMBEDDING_PROVIDER`, `IMAGE_PROVIDER`,
+`SHORTSMITH_BUDGET`, `SHORTSMITH_CRITIC_MODEL`, `LLM_PROVIDER`, `IMAGE_PROVIDER`,
 `VECTOR_STORE`, `DATABASE_URL`, ...) > `.env` in the current folder > defaults.
 
 **Tests:** `uv run pytest` runs everything offline (the pgvector integration tests are skipped, with the

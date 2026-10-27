@@ -73,10 +73,9 @@ PRICES: dict[str, dict[str, float]] = {
     "gemini-3.6-flash": {"input": 0.75, "cached_input": 0.075, "output": 3.75},
     # Embeddings: input only (a vector is not generated text). gemini-embedding-2: $0.20 per 1M
     # text tokens on the paid tier, free on ours (same pricing page, checked 2026-10-23).
-    # text-embedding-3-small/-large: OpenAI's list prices (same page as the chat models).
+    # text-embedding-3-small: OpenAI's list price, kept with PROVIDERS["openai"] (the RAG index stays on Gemini).
     "gemini-embedding-2": {"input": 0.20, "cached_input": 0.20, "output": 0.0},
     "text-embedding-3-small": {"input": 0.02, "cached_input": 0.02, "output": 0.0},
-    "text-embedding-3-large": {"input": 0.13, "cached_input": 0.13, "output": 0.0},
 }
 
 _SNAPSHOT_DATE = re.compile(r"-\d{4}-\d{2}-\d{2}$")

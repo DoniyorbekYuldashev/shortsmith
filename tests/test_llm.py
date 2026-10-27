@@ -511,37 +511,21 @@ def test_every_schema_we_send_meets_openais_strict_rules():
         assert problems == [], problems
 
 
-def test_the_embedding_provider_is_independent_of_the_chat_provider(monkeypatch, tmp_path):
-    monkeypatch.setenv("LLM_PROVIDER", "openai")
-    assert llm.embedding_model() == llm.PROVIDERS[llm.EMBEDDING_PROVIDER_DEFAULT].embedding_model
-    monkeypatch.setenv("EMBEDDING_PROVIDER", "gemini")
-    assert llm.embedding_model() == "gemini-embedding-2"  # chat on OpenAI, the index on Gemini's vectors
-    monkeypatch.setenv("EMBEDDING_PROVIDER", "openai")
-    assert llm.embedding_model() == "text-embedding-3-small"
-    monkeypatch.setenv("SHORTSMITH_EMBEDDING_MODEL", "text-embedding-3-large")
-    assert llm.embedding_model() == "text-embedding-3-large"
-    monkeypatch.setenv("EMBEDDING_PROVIDER", "nope")
-    with pytest.raises(ValueError, match="EMBEDDING_PROVIDER"):
-        llm.embedding_provider()
+def test_the_rag_embeddings_stay_on_gemini_whatever_the_text_provider(monkeypatch, tmp_path):
+    """Owner's choice (2026-10-26): text may move to OpenAI, the RAG index (kb_gemini_embedding_2_768) doesn't."""
+    for name in ("gemini", "openai"):
+        monkeypatch.setenv("LLM_PROVIDER", name)
+        assert llm.embedding_model() == "gemini-embedding-2"
 
     used: list[str | None] = []
-    batch = _embeddings([[0.5] * 4], model="text-embedding-3-small", usage=NS(prompt_tokens=7), indexed=True)
 
     def client(name=None):
         used.append(name)
-        return _embedding_client([batch])
+        return _embedding_client([_embeddings([[0.5] * 4])])
 
     monkeypatch.setattr(llm, "_client", client)
-    monkeypatch.setenv("LLM_PROVIDER", "gemini")  # chat on Gemini, embeddings on OpenAI: still OpenAI's address
-    result = llm.embed(["a"], model="text-embedding-3-small", dimensions=4, ledger_path=tmp_path / "ledger.jsonl")
-    assert used == ["openai"] and result.prompt_tokens == 7 and result.cost_usd == pytest.approx(7 * 0.02 / 1e6)
-
-
-def test_the_rag_tables_are_one_per_model_and_size():
-    from shortsmith.research import rag, stores
-
-    names = {stores.table_name(rag.collection_name(m, 768)) for m in ("gemini-embedding-2", "text-embedding-3-small")}
-    assert names == {"kb_gemini_embedding_2_768", "kb_text_embedding_3_small_768"}
+    llm.embed(["a"], dimensions=4, ledger_path=tmp_path / "ledger.jsonl")  # LLM_PROVIDER=openai, from the loop
+    assert used == ["gemini"]  # Google's address and key, not OpenAI's
 
 
 def test_a_dated_snapshot_has_its_models_price_and_a_longer_name_has_none():
